@@ -2,12 +2,9 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="LocKit.App.MainWindow"
         x:CompileBindings="False"
-        Title=""
+        Title="LocKit Game Translation Tool"
         Width="1200" Height="800"
         WindowStartupLocation="CenterScreen"
-        ExtendClientAreaToDecorationsHint="True"
-        ExtendClientAreaTitleBarHeightHint="-1"
-        WindowDecorations="Full"
         Foreground="#E2E8F0">
 
     <Window.Background>
@@ -72,72 +69,87 @@
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Padding" Value="0"/>
         </Style>
-        <Style Selector="ListBoxItem.sidebar-item">
+        <Style Selector="ListBox.sidebar-list > ListBoxItem">
             <Setter Property="Padding" Value="12,8"/>
             <Setter Property="CornerRadius" Value="3"/>
             <Setter Property="Foreground" Value="#A0A0AA"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
             <Setter Property="Transitions">
                 <Transitions>
                     <BrushTransition Property="Background" Duration="0:0:0.1" Easing="CubicEaseOut"/>
                 </Transitions>
             </Setter>
         </Style>
-        <Style Selector="ListBoxItem.sidebar-item:pointerover">
+        <Style Selector="ListBox.sidebar-list > ListBoxItem:pointerover">
             <Setter Property="Background" Value="#161622"/>
             <Setter Property="Foreground" Value="#E2E8F0"/>
         </Style>
-        <Style Selector="ListBoxItem.sidebar-item:selected">
+        <Style Selector="ListBox.sidebar-list > ListBoxItem:selected">
             <Setter Property="Background" Value="#241B35"/>
             <Setter Property="Foreground" Value="#D8B4FE"/>
         </Style>
     </Window.Styles>
 
-    <Grid RowDefinitions="30, *">
-        <!-- Titlebar Grid -->
-        <Grid Grid.Row="0" Background="#0A0A0D" ColumnDefinitions="*, Auto">
-            <!-- Draggable Area -->
-            <Border Grid.Column="0" Background="Transparent" Height="30" />
-            
-            <!-- Right side AI Toggle Button -->
-            <Button Grid.Column="1" x:Name="AiToggleButton" Click="ToggleAiPanel_Click" Margin="0,3,10,3" Width="32" Height="24" Padding="0" Background="#16161F" BorderBrush="#252533" CornerRadius="3" ToolTip.Tip="Toggle AI Chat (Ctrl+L)">
-                <TextBlock Text="✨" FontSize="11" Foreground="#F472B6" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-            </Button>
-        </Grid>
+    <Grid RowDefinitions="*, 24">
 
         <!-- Main Workspace Split Grid -->
-        <Grid Grid.Row="1" x:Name="WorkspaceGrid" ColumnDefinitions="*, 1, Auto">
+        <Grid Grid.Row="0" x:Name="WorkspaceGrid" ColumnDefinitions="*, 1, Auto">
             
             <!-- Left Side Area (Toolbar & Code/Content) -->
             <Grid Grid.Column="0" RowDefinitions="48, *">
                 
                 <!-- Toolbar Panel -->
                 <Border Grid.Row="0" Background="#0E0E14" BorderBrush="#1C1C24" BorderThickness="0,0,0,1" Padding="12,8">
-                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                        <!-- Open Folder Button -->
-                        <Button Classes="toolbar-btn" Click="OpenFile_Click" ToolTip.Tip="Open Game Folder">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                <TextBlock Text="📁" FontSize="11"/>
-                                <TextBlock Text="Open Folder" VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </Button>
+                    <Grid ColumnDefinitions="*, Auto">
+                        <!-- Left Side Buttons -->
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <!-- New Project Button -->
+                            <Button Classes="toolbar-btn" Click="NewProject_Click" ToolTip.Tip="New Project (Ctrl+N)">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <TextBlock Text="🆕" FontSize="11"/>
+                                    <TextBlock Text="New Project" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            
+                            <!-- Open Project Button -->
+                            <Button Classes="toolbar-btn" Click="OpenProject_Click" ToolTip.Tip="Open Project (Ctrl+O)">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <TextBlock Text="📂" FontSize="11"/>
+                                    <TextBlock Text="Open Project" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+
+                            <!-- Import Folder Button -->
+                            <Button Classes="toolbar-btn" Click="OpenFile_Click" ToolTip.Tip="Import Game Folder (Ctrl+I)">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <TextBlock Text="📥" FontSize="11"/>
+                                    <TextBlock Text="Import Folder" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            
+                            <!-- Save Button (Icon Only) -->
+                            <Button Classes="toolbar-btn" Click="SaveFile_Click" Width="32" Height="32" Padding="0" ToolTip.Tip="Save Translation (Ctrl+S)">
+                                <TextBlock Text="💾" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Button>
+                            
+                            <!-- Export Button (Icon Only, Custom Icon) -->
+                            <Button Classes="toolbar-btn" Click="Export_Click" Width="32" Height="32" Padding="0" ToolTip.Tip="Export to game/tl/">
+                                <TextBlock Text="🚀" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Button>
+                        </StackPanel>
                         
-                        <!-- Save Button (Icon Only) -->
-                        <Button Classes="toolbar-btn" Click="SaveFile_Click" Width="32" Height="32" Padding="0" ToolTip.Tip="Save Translation (Ctrl+S)">
-                            <TextBlock Text="💾" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <!-- Right Side AI Toggle Button -->
+                        <Button Grid.Column="1" x:Name="AiToggleButton" Click="ToggleAiPanel_Click" Width="32" Height="32" Padding="0" Background="#16161F" BorderBrush="#252533" CornerRadius="3" ToolTip.Tip="Toggle AI Chat (Ctrl+L)">
+                            <TextBlock Text="✨" FontSize="14" Foreground="#F472B6" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Button>
-                        
-                        <!-- Export Button (Icon Only, Custom Icon) -->
-                        <Button Classes="toolbar-btn" Click="Export_Click" Width="32" Height="32" Padding="0" ToolTip.Tip="Export to game/tl/">
-                            <TextBlock Text="🚀" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Button>
-                    </StackPanel>
+                    </Grid>
                 </Border>
 
                 <!-- Sidebar + Table Workspace -->
                 <Grid Grid.Row="1" ColumnDefinitions="240, 1, *">
                     <!-- Left Sidebar (Files List) -->
                     <Border Grid.Column="0" Background="#0A0A0D" BorderBrush="#1C1C24" BorderThickness="0,0,1,0" Padding="12">
-                        <Grid RowDefinitions="Auto, *">
+                        <Grid RowDefinitions="Auto, *, Auto">
                             <TextBlock Grid.Row="0" Text="TRANSLATION FILES" FontSize="10" FontWeight="Bold" Foreground="#5B5E6B" LetterSpacing="1" Margin="4,0,0,12"/>
                             <ListBox Grid.Row="1" x:Name="FilesListBox" Classes="sidebar-list" SelectionChanged="FilesListBox_SelectionChanged">
                                 <ListBox.ContextMenu>
@@ -145,22 +157,31 @@
                                         <MenuItem Header="Create New Table" Click="CreateNewTable_Click"/>
                                     </ContextMenu>
                                 </ListBox.ContextMenu>
-                                <ListBox.Styles>
-                                    <Style Selector="ListBoxItem">
-                                        <Setter Property="Padding" Value="12,8"/>
-                                        <Setter Property="CornerRadius" Value="3"/>
-                                        <Setter Property="Foreground" Value="#A0A0AA"/>
-                                    </Style>
-                                </ListBox.Styles>
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
-                                        <StackPanel Orientation="Horizontal" Spacing="8">
-                                            <TextBlock Text="📄" Foreground="#888888" VerticalAlignment="Center" FontSize="12"/>
-                                            <TextBlock Text="{Binding}" VerticalAlignment="Center" FontSize="13"/>
-                                        </StackPanel>
+                                        <Grid ColumnDefinitions="Auto, *, Auto" HorizontalAlignment="Stretch">
+                                            <CheckBox Grid.Column="0" IsChecked="{Binding IsChecked, Mode=TwoWay}" Margin="0,0,8,0" Focusable="False" VerticalAlignment="Center"/>
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                                <TextBlock Text="📄" Foreground="#888888" VerticalAlignment="Center" FontSize="12"/>
+                                                <TextBlock Text="{Binding Name}" VerticalAlignment="Center" FontSize="13" TextTrimming="CharacterEllipsis"/>
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="2" Text="{Binding ProgressText}" FontSize="11" Foreground="#5B5E6B" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                        </Grid>
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>
                             </ListBox>
+
+                            <!-- Sidebar Selection Actions -->
+                            <StackPanel Grid.Row="2" Spacing="6" Margin="0,12,0,0">
+                                <Grid ColumnDefinitions="*, *">
+                                    <Button Grid.Column="0" Content="Все" Classes="toolbar-btn" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Click="SelectAllFiles_Click" FontSize="11" Margin="0,0,4,0"/>
+                                    <Button Grid.Column="1" Content="Снять" Classes="toolbar-btn" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Click="SelectNoFiles_Click" FontSize="11" Margin="4,0,0,0"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="*, *">
+                                    <Button Grid.Column="0" Content="Инверсия" Classes="toolbar-btn" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Click="InvertFiles_Click" FontSize="11" Margin="0,0,4,0"/>
+                                    <Button Grid.Column="1" Content="Сбросить" Classes="toolbar-btn" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Click="RestoreFiles_Click" FontSize="11" Margin="4,0,0,0"/>
+                                </Grid>
+                            </StackPanel>
                         </Grid>
                     </Border>
 
@@ -168,9 +189,34 @@
                     <GridSplitter Grid.Column="1" Width="1" Background="#1C1C24" ResizeBehavior="PreviousAndNext"/>
 
                     <!-- Central Work Area (Table & Bottom Editor) -->
-                    <Grid Grid.Column="2" RowDefinitions="*, 1, 220" Background="#0D0D12">
+                    <Grid Grid.Column="2" RowDefinitions="Auto, Auto, *, 1, 240" Background="#0D0D12">
+                        <!-- Breadcrumb Bar -->
+                        <Border Grid.Row="0" Background="#070709" BorderBrush="#1C1C24" BorderThickness="0,0,0,1" Padding="16,6">
+                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                <TextBlock Text="📁" FontSize="11" Foreground="#888888"/>
+                                <TextBlock x:Name="BreadcrumbTextBlock" Text="Select a file..." FontSize="11" Foreground="#888888" FontWeight="Medium"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Search & Filter Panel -->
+                        <Border Grid.Row="1" Background="#0A0A0D" BorderBrush="#1C1C24" BorderThickness="0,0,0,1" Padding="12,6">
+                            <Grid ColumnDefinitions="*, Auto, Auto, Auto">
+                                <!-- Search Input -->
+                                <TextBox Grid.Column="0" x:Name="SearchTextBox" PlaceholderText="Поиск..." FontSize="12" Height="28" Background="#0F0F14" BorderBrush="#252535" Padding="6,2" Margin="0,0,12,0" TextChanged="SearchTextBox_TextChanged"/>
+                                
+                                <!-- Show only untranslated toggle -->
+                                <CheckBox Grid.Column="1" x:Name="ShowOnlyUntranslatedCheckBox" Content="Только непереведенные" FontSize="11" Foreground="#A0A0AA" VerticalAlignment="Center" Margin="0,0,16,0" IsCheckedChanged="ShowOnlyUntranslatedCheckBox_IsCheckedChanged"/>
+                                
+                                <!-- Stats -->
+                                <TextBlock Grid.Column="2" x:Name="GridProgressTextBlock" Text="0 / 0" FontSize="11" Foreground="#888888" VerticalAlignment="Center" Margin="0,0,16,0"/>
+
+                                <!-- Batch auto-translate button -->
+                                <Button Grid.Column="3" Content="Автоперевод (Google)" Classes="toolbar-btn" Height="28" Padding="10,0" FontSize="11" Click="BatchTranslateGoogleFree_Click" ToolTip.Tip="Перевести все непереведенные строки в этом файле бесплатно через Google"/>
+                            </Grid>
+                        </Border>
+
                         <!-- Main DataGrid -->
-                        <DataGrid Grid.Row="0" x:Name="TranslationGrid"
+                        <DataGrid Grid.Row="2" x:Name="TranslationGrid"
                                   AutoGenerateColumns="False" 
                                   CanUserSortColumns="True"
                                   CanUserResizeColumns="True"
@@ -191,29 +237,45 @@
                         </DataGrid>
 
                         <!-- Workspace Horizontal Splitter -->
-                        <GridSplitter Grid.Row="1" Height="1" Background="#1C1C24" ResizeBehavior="PreviousAndNext"/>
+                        <GridSplitter Grid.Row="3" Height="1" Background="#1C1C24" ResizeBehavior="PreviousAndNext"/>
 
-                        <!-- Bottom Editor (Before & After translation context) -->
-                        <Border Grid.Row="2" Background="#0A0A0D" Padding="16,12">
-                            <Grid RowDefinitions="Auto, *">
-                                <TextBlock Grid.Row="0" Text="TRANSLATION CONTEXT EDITOR" FontSize="10" FontWeight="Bold" Foreground="#5B5E6B" LetterSpacing="1" Margin="0,0,0,8"/>
-                                
-                                <Grid Grid.Row="1" ColumnDefinitions="*, 16, *">
-                                    <!-- Original (Before) -->
-                                    <Grid Grid.Column="0" RowDefinitions="Auto, *">
-                                        <TextBlock Grid.Row="0" Text="Original Text" FontSize="11" Foreground="#888888" Margin="0,0,0,4"/>
-                                        <TextBox Grid.Row="1" x:Name="OriginalContextTextBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" Background="#0F0F14" BorderBrush="#1C1C24" FontSize="13" Foreground="#CCCCCC"/>
-                                    </Grid>
+                        <!-- Bottom Editor (Before & After translation context with Tabs) -->
+                        <Border Grid.Row="4" Background="#0A0A0D" Padding="16,8">
+                            <Grid ColumnDefinitions="*, 16, *">
+                                <!-- Left TabControl (Original & Properties) -->
+                                <TabControl Grid.Column="0" Margin="0" Padding="0">
+                                    <TabItem Header="Оригинал" FontSize="11" FontWeight="SemiBold" Height="28" VerticalContentAlignment="Center">
+                                        <TextBox x:Name="OriginalContextTextBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" Background="#0F0F14" BorderBrush="#1C1C24" FontSize="13" Foreground="#CCCCCC" Margin="0,8,0,0"/>
+                                    </TabItem>
+                                    <TabItem Header="Свойства" FontSize="11" FontWeight="SemiBold" Height="28" VerticalContentAlignment="Center">
+                                        <Border Background="#0F0F14" BorderBrush="#1C1C24" BorderThickness="1" CornerRadius="3" Padding="12" Margin="0,8,0,0">
+                                            <StackPanel Spacing="8">
+                                                <Grid ColumnDefinitions="100, *">
+                                                    <TextBlock Grid.Column="0" Text="Row ID:" Foreground="#5B5E6B" FontSize="11"/>
+                                                    <TextBlock Grid.Column="1" x:Name="PropertyRowIdText" Text="N/A" Foreground="#CCCCCC" FontSize="11" FontWeight="Medium"/>
+                                                </Grid>
+                                                <Grid ColumnDefinitions="100, *">
+                                                    <TextBlock Grid.Column="0" Text="Key/Context:" Foreground="#5B5E6B" FontSize="11"/>
+                                                    <TextBlock Grid.Column="1" x:Name="PropertyKeyText" Text="N/A" Foreground="#CCCCCC" FontSize="11" FontWeight="Medium" TextWrapping="Wrap"/>
+                                                </Grid>
+                                                <Grid ColumnDefinitions="100, *">
+                                                    <TextBlock Grid.Column="0" Text="Source File:" Foreground="#5B5E6B" FontSize="11"/>
+                                                    <TextBlock Grid.Column="1" x:Name="PropertyFileText" Text="N/A" Foreground="#CCCCCC" FontSize="11" FontWeight="Medium"/>
+                                                </Grid>
+                                            </StackPanel>
+                                        </Border>
+                                    </TabItem>
+                                </TabControl>
 
-                                    <!-- Spacer -->
-                                    <Grid Grid.Column="1"/>
+                                <!-- Spacer -->
+                                <Grid Grid.Column="1"/>
 
-                                    <!-- Translation (After) -->
-                                    <Grid Grid.Column="2" RowDefinitions="Auto, *">
-                                        <TextBlock Grid.Row="0" Text="Translation Text" FontSize="11" Foreground="#C084FC" Margin="0,0,0,4"/>
-                                        <TextBox Grid.Row="1" x:Name="TranslationContextTextBox" AcceptsReturn="True" TextWrapping="Wrap" Background="#110E18" BorderBrush="#2E1B4E" FontSize="13" Foreground="#FFFFFF" TextChanged="TranslationContextTextBox_TextChanged"/>
-                                    </Grid>
-                                </Grid>
+                                <!-- Right TabControl (Translation) -->
+                                <TabControl Grid.Column="2" Margin="0" Padding="0">
+                                    <TabItem Header="Перевод" FontSize="11" FontWeight="SemiBold" Height="28" VerticalContentAlignment="Center">
+                                        <TextBox x:Name="TranslationContextTextBox" AcceptsReturn="True" TextWrapping="Wrap" Background="#110E18" BorderBrush="#2E1B4E" FontSize="13" Foreground="#FFFFFF" Margin="0,8,0,0" TextChanged="TranslationContextTextBox_TextChanged"/>
+                                    </TabItem>
+                                </TabControl>
                             </Grid>
                         </Border>
                     </Grid>
@@ -275,5 +337,13 @@
             </Border>
 
         </Grid>
+
+        <!-- Bottom Status Bar -->
+        <Border Grid.Row="1" Background="#0E0E14" BorderBrush="#1C1C24" BorderThickness="0,1,0,0" Padding="12,0">
+            <Grid ColumnDefinitions="*, Auto">
+                <TextBlock x:Name="StatusTextBlock" Text="Ready" FontSize="11" Foreground="#888888" VerticalAlignment="Center"/>
+                <TextBlock x:Name="ExportCountTextBlock" Text="" FontSize="11" Foreground="#5B5E6B" VerticalAlignment="Center" Grid.Column="1"/>
+            </Grid>
+        </Border>
     </Grid>
 </Window>

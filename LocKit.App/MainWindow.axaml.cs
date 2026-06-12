@@ -53,18 +53,42 @@ namespace LocKit.App
         private readonly DecompilerService _decompilerService = new();
         private readonly LlmService _llmService = new();
         private ObservableCollection<TranslationRow> _translationItems = new();
-        private ObservableCollection<string> _fileItems = new();
+        private ObservableCollection<FileItemViewModel> _fileItems = new();
+        private Dictionary<string, bool> _fileCheckedSnapshot = new();
         private bool _isAiOpen = true;
         private int _customColumnCounter = 1;
         private TranslationRow? _selectedRow;
         private string _lastGameFolder = string.Empty;
 
-        public MainWindow()
+        public MainWindow() : this(null)
+        {
+        }
+
+        public MainWindow(string? initialProjectPath = null)
         {
             InitializeComponent();
             
-            // Initialize database schema and seed demo data
-            _dbService.InitializeDatabase();
+            // Initialize global database first
+            InitializeGlobalDatabase();
+
+            string? projectToLoad = initialProjectPath;
+            if (string.IsNullOrEmpty(projectToLoad))
+            {
+                projectToLoad = _dbService.GetSetting("last_project_path", "", isGlobal: true);
+            }
+
+            if (!string.IsNullOrEmpty(projectToLoad) && File.Exists(projectToLoad))
+            {
+                _dbService.SetDatabasePath(projectToLoad);
+                _dbService.InitializeDatabase(seedDemo: false);
+                Title = $"LocKit - {Path.GetFileName(projectToLoad)}";
+                _lastGameFolder = _dbService.GetSetting("game_folder_path", "");
+            }
+            else
+            {
+                _dbService.SetDatabasePath("lockit.db");
+                _dbService.InitializeDatabase(seedDemo: true);
+            }
 
             SetupDataFromDb();
             
@@ -76,16 +100,63 @@ namespace LocKit.App
             InitializeGridContextMenu();
         }
 
+        private void InitializeGlobalDatabase()
+        {
+            try
+            {
+                using var connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=lockit.db");
+                connection.Open();
+                using var cmd = new Microsoft.Data.Sqlite.SqliteCommand("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);", connection);
+                cmd.ExecuteNonQuery();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to init global DB: {ex.Message}");
+            }
+        }
+
         private void SetupDataFromDb()
         {
-            // Load files list from SQLite
             var files = _dbService.GetFiles();
-            _fileItems = new ObservableCollection<string>(files);
+            var items = files.Select(f => new FileItemViewModel { Name = f, IsChecked = true }).ToList();
+            _fileItems = new ObservableCollection<FileItemViewModel>(items);
             FilesListBox.ItemsSource = _fileItems;
+
+            _fileCheckedSnapshot = files.ToDictionary(f => f, f => true);
+
+            UpdateFilesProgress();
 
             if (_fileItems.Count > 0)
             {
                 FilesListBox.SelectedIndex = 0;
+            }
+        }
+
+        private void UpdateFilesProgress()
+        {
+            try
+            {
+                var stats = _dbService.GetFilesTranslationStats();
+                foreach (var fileItem in _fileItems)
+                {
+                    if (stats.TryGetValue(fileItem.Name, out var fileStat))
+                    {
+                        int total = fileStat.Total;
+                        int translated = fileStat.Translated;
+                        double percent = total > 0 ? (double)translated / total * 100.0 : 0.0;
+                        fileItem.ProgressPercent = percent;
+                        fileItem.ProgressText = $"{translated}/{total} ({percent:F0}%)";
+                    }
+                    else
+                    {
+                        fileItem.ProgressPercent = 0.0;
+                        fileItem.ProgressText = "0/0 (0%)";
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(ex.Message);
             }
         }
 
@@ -123,6 +194,24 @@ namespace LocKit.App
                 SaveActiveFile();
                 e.Handled = true;
             }
+            // Ctrl + N: New Project
+            else if (e.Key == Key.N && e.KeyModifiers == KeyModifiers.Control)
+            {
+                _ = CreateNewProjectAsync();
+                e.Handled = true;
+            }
+            // Ctrl + O: Open Project
+            else if (e.Key == Key.O && e.KeyModifiers == KeyModifiers.Control)
+            {
+                _ = OpenExistingProjectAsync();
+                e.Handled = true;
+            }
+            // Ctrl + I: Import Folder
+            else if (e.Key == Key.I && e.KeyModifiers == KeyModifiers.Control)
+            {
+                _ = OpenGameFolderAsync();
+                e.Handled = true;
+            }
         }
 
         private void ToggleAiPanel()
@@ -146,35 +235,21 @@ namespace LocKit.App
 
         private void SaveActiveFile()
         {
-            var selectedFile = FilesListBox.SelectedItem as string;
+            var selectedFile = (FilesListBox.SelectedItem as FileItemViewModel)?.Name;
             if (string.IsNullOrEmpty(selectedFile)) return;
 
-            // Save all translation items of the active file to SQLite database
             foreach (var item in _translationItems)
             {
                 _dbService.UpdateTranslation(item.Id, item.Translation);
                 
-                // Save custom columns/meta
                 foreach (var meta in item.CustomColumns)
                 {
                     _dbService.SaveCustomMeta(item.Id, meta.Key, meta.Value);
                 }
             }
 
-            var border = new Border
-            {
-                Background = new SolidColorBrush(Color.Parse("#1E1B4E")),
-                BorderBrush = new SolidColorBrush(Color.Parse("#4C1D95")),
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(3),
-                Padding = new Thickness(10),
-                Margin = new Thickness(0, 4, 0, 0)
-            };
-            var panel = new StackPanel { Spacing = 4 };
-            panel.Children.Add(new TextBlock { Text = "System Log", FontSize = 11, Foreground = new SolidColorBrush(Color.Parse("#F472B6")), FontWeight = FontWeight.SemiBold });
-            panel.Children.Add(new TextBlock { Text = $"Saved changes for {selectedFile} containing {_translationItems.Count} strings to SQLite database.", FontSize = 12, Foreground = new SolidColorBrush(Color.Parse("#A0A0AA")), TextWrapping = TextWrapping.Wrap });
-            border.Child = panel;
-            ChatHistoryPanel.Children.Add(border);
+            SetStatus($"Saved changes for {selectedFile} containing {_translationItems.Count} strings to SQLite database.");
+            UpdateFilesProgress();
         }
 
         private async void OpenFile_Click(object sender, RoutedEventArgs e)
@@ -197,16 +272,24 @@ namespace LocKit.App
 
             string folderPath = folders[0].Path.LocalPath;
             _lastGameFolder = folderPath;
-            
+
+            // Save game folder path to current project settings
+            _dbService.SaveSetting("game_folder_path", folderPath);
+
+            await ImportGameFolderFilesAsync(folderPath);
+        }
+
+        private async Task ImportGameFolderFilesAsync(string folderPath)
+        {
             // Search for and handle .rpyc files first
             string[] rpycFiles = Directory.GetFiles(folderPath, "*.rpyc", SearchOption.AllDirectories);
             if (rpycFiles.Length > 0)
             {
-                AddAiChatBubble($"Found {rpycFiles.Length} compiled .rpyc file(s). Running decompiler...");
-                bool decompileSuccess = await _decompilerService.DecompileFolderIfNeededAsync(folderPath, msg => AddAiChatBubble(msg));
+                SetStatus($"Found {rpycFiles.Length} compiled .rpyc file(s). Running decompiler...");
+                bool decompileSuccess = await _decompilerService.DecompileFolderIfNeededAsync(folderPath, msg => SetStatus(msg));
                 if (!decompileSuccess)
                 {
-                    AddAiChatBubble("Failed to decompile all .rpyc files. Some dialogue may be missing. Proceeding to parse available .rpy files...");
+                    SetStatus("Failed to decompile all .rpyc files. Some dialogue may be missing. Proceeding to parse available .rpy files...");
                 }
             }
 
@@ -214,45 +297,190 @@ namespace LocKit.App
 
             if (rpyFiles.Length == 0)
             {
-                AddAiChatBubble($"No .rpy source files found in selected folder.");
+                SetStatus("No .rpy source files found in selected folder.");
                 return;
             }
 
             int totalImported = 0;
 
-            // Parse all .rpy files
-            foreach (string filePath in rpyFiles)
+            try
             {
-                string fileName = Path.GetFileName(filePath);
-                var parsed = NativeParser.ParseRpyFile(filePath);
-                if (parsed.Count == 0) continue;
+                _fileItems.Clear();
 
-                _dbService.ImportRpyFile(fileName, parsed);
+                foreach (string filePath in rpyFiles)
+                {
+                    string fileName = Path.GetFileName(filePath);
+                    var parsed = NativeParser.ParseRpyFile(filePath);
 
-                if (!_fileItems.Contains(fileName))
-                    _fileItems.Add(fileName);
+                    _dbService.ImportRpyFile(fileName, parsed);
 
-                totalImported += parsed.Count;
+                    if (!_fileItems.Any(f => f.Name == fileName))
+                    {
+                        _fileItems.Add(new FileItemViewModel { Name = fileName, IsChecked = true });
+                    }
+
+                    totalImported += parsed.Count;
+                }
+            }
+            catch (Exception ex)
+            {
+                SetStatus($"Error during parsing and database import: {ex.Message}");
+                return;
             }
 
-            // Handle .rpyc files
-            if (rpycFiles.Length > 0)
+            _fileCheckedSnapshot = _fileItems.ToDictionary(f => f.Name, f => f.IsChecked);
+
+            UpdateFilesProgress();
+
+            if (_fileItems.Count > 0)
             {
-                string rpycList = string.Join(", ", rpycFiles.Select(Path.GetFileName));
-                AddAiChatBubble($"Found {rpycFiles.Length} compiled .rpyc file(s): {rpycList}\nDecompilation support coming soon. For now, if the game folder contains .rpy source files too, they are already imported.");
+                FilesListBox.SelectedItem = _fileItems[0];
             }
 
             if (totalImported > 0)
             {
-                // Auto-select first file
-                if (_fileItems.Count > 0)
-                    FilesListBox.SelectedItem = _fileItems[0];
-
-                AddAiChatBubble($"Imported {totalImported} dialogue strings from {rpyFiles.Length} file(s). Select a file in the sidebar to start translating.");
+                SetStatus($"Imported {totalImported} dialogue strings from {rpyFiles.Length} file(s). Select a file in the sidebar to start translating.");
             }
             else if (rpyFiles.Length > 0)
             {
-                AddAiChatBubble($"Found {rpyFiles.Length} .rpy file(s) but no dialogue strings were extracted. Files may contain only code.");
+                SetStatus($"Imported {rpyFiles.Length} files. Selected files may contain only code.");
+            }
+        }
+
+        private async void NewProject_Click(object? sender, RoutedEventArgs e)
+        {
+            await CreateNewProjectAsync();
+        }
+
+        private async Task CreateNewProjectAsync()
+        {
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel == null) return;
+
+            var file = await topLevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = "Create New LocKit Project",
+                DefaultExtension = "lockit",
+                SuggestedFileName = "project.lockit",
+                FileTypeChoices = new[]
+                {
+                    new FilePickerFileType("LocKit Projects")
+                    {
+                        Patterns = new[] { "*.lockit", "*.lkproj" }
+                    }
+                }
+            });
+
+            if (file == null) return;
+            string projectPath = file.Path.LocalPath;
+
+            var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+            {
+                Title = "Select Ren'Py Game Folder (game/ directory)",
+                AllowMultiple = false
+            });
+
+            if (folders.Count == 0) return;
+            string gameFolder = folders[0].Path.LocalPath;
+
+            var prompt = new PromptWindow("New Project Target Language", "Enter target language (e.g. russian):", "russian");
+            await prompt.ShowDialog(this);
+            string targetLang = prompt.Result.Trim();
+            if (string.IsNullOrEmpty(targetLang))
+            {
+                targetLang = "russian";
+            }
+
+            await CreateProjectAsync(projectPath, gameFolder, targetLang);
+        }
+
+        private async void OpenProject_Click(object? sender, RoutedEventArgs e)
+        {
+            await OpenExistingProjectAsync();
+        }
+
+        private async Task OpenExistingProjectAsync()
+        {
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel == null) return;
+
+            var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "Open LocKit Project",
+                AllowMultiple = false,
+                FileTypeFilter = new[]
+                {
+                    new FilePickerFileType("LocKit Projects")
+                    {
+                        Patterns = new[] { "*.lockit", "*.lkproj" }
+                    }
+                }
+            });
+
+            if (files.Count == 0) return;
+            string projectPath = files[0].Path.LocalPath;
+
+            await LoadProjectAsync(projectPath);
+        }
+
+        private async Task CreateProjectAsync(string projectPath, string gameFolder, string targetLang)
+        {
+            try
+            {
+                SaveActiveFile();
+
+                if (File.Exists(projectPath))
+                {
+                    File.Delete(projectPath);
+                }
+
+                _dbService.SetDatabasePath(projectPath);
+                _dbService.InitializeDatabase(seedDemo: false);
+
+                _dbService.SaveSetting("game_folder_path", gameFolder);
+                _dbService.SaveSetting("default_target_language", targetLang);
+
+                _dbService.SaveSetting("last_project_path", projectPath, isGlobal: true);
+
+                _lastGameFolder = gameFolder;
+                Title = $"LocKit - {Path.GetFileName(projectPath)}";
+
+                SetStatus($"Project created. Importing game files from {gameFolder}...");
+                await ImportGameFolderFilesAsync(gameFolder);
+
+                SetStatus($"Project created and game files imported successfully!");
+            }
+            catch (Exception ex)
+            {
+                SetStatus($"Error creating project: {ex.Message}");
+            }
+        }
+
+        private async Task LoadProjectAsync(string projectPath)
+        {
+            if (string.IsNullOrEmpty(projectPath) || !File.Exists(projectPath)) return;
+
+            try
+            {
+                SaveActiveFile();
+
+                _dbService.SetDatabasePath(projectPath);
+                _dbService.InitializeDatabase(seedDemo: false);
+
+                _lastGameFolder = _dbService.GetSetting("game_folder_path", "");
+                string targetLang = _dbService.GetSetting("default_target_language", "russian");
+
+                _dbService.SaveSetting("last_project_path", projectPath, isGlobal: true);
+
+                SetupDataFromDb();
+
+                Title = $"LocKit - {Path.GetFileName(projectPath)}";
+
+                SetStatus($"Loaded project: {Path.GetFileName(projectPath)}. Target language: {targetLang}.");
+            }
+            catch (Exception ex)
+            {
+                SetStatus($"Error loading project: {ex.Message}");
             }
         }
 
@@ -266,12 +494,12 @@ namespace LocKit.App
             await ExportTlFolderAsync();
         }
 
-        private async Task ExportTlFolderAsync()
+        private Task ExportTlFolderAsync()
         {
             if (_fileItems.Count == 0 || string.IsNullOrEmpty(_lastGameFolder))
             {
-                AddAiChatBubble("No game folder loaded. Open a game folder first.");
-                return;
+                SetStatus("No game folder loaded. Open a game folder first.");
+                return Task.CompletedTask;
             }
 
             // Save current file before exporting
@@ -282,8 +510,11 @@ namespace LocKit.App
             int exportedFiles = 0;
             int exportedStrings = 0;
 
-            foreach (string fileName in _fileItems)
+            foreach (var item in _fileItems)
             {
+                if (!item.IsChecked) continue;
+
+                string fileName = item.Name;
                 var units = _dbService.GetUnitsForExport(fileName);
                 if (units.Count == 0) continue;
 
@@ -297,16 +528,20 @@ namespace LocKit.App
                 }
                 else
                 {
-                    AddAiChatBubble($"Export error for {fileName}: {error}");
+                    SetStatus($"Export error for {fileName}: {error}");
                 }
             }
 
             if (exportedFiles > 0)
             {
-                AddAiChatBubble(
-                    $"Export complete! {exportedStrings} strings across {exportedFiles} file(s) written directly to:\n{tlRoot}\n\n" +
-                    $"To enable in Ren'Py, add to options.rpy:\n    define config.language = \"{targetLanguage}\"");
+                SetStatus($"Export complete! {exportedStrings} strings across {exportedFiles} file(s) written directly to {tlRoot}");
             }
+            else
+            {
+                SetStatus("No files were exported. Make sure files are checked in the sidebar.");
+            }
+
+            return Task.CompletedTask;
         }
 
         private void AddColumn_Click(object sender, RoutedEventArgs e)
@@ -335,7 +570,7 @@ namespace LocKit.App
             TranslationGrid.ItemsSource = null;
             TranslationGrid.ItemsSource = _translationItems;
 
-            AddAiChatBubble($"Added new custom column '{colHeader}'. You can now associate notes or custom meta with each translation row. Click Save (Ctrl+S) to persist it.");
+            SetStatus($"Added new custom column '{colHeader}'. Click Save (Ctrl+S) to persist.");
         }
 
         private void ToggleAiPanel_Click(object sender, RoutedEventArgs e)
@@ -350,16 +585,21 @@ namespace LocKit.App
 
         private void FilesListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (FilesListBox.SelectedItem is string selectedFile)
+            if (FilesListBox.SelectedItem is FileItemViewModel fileItem)
             {
-                // Load units from SQLite database for the selected file
+                string selectedFile = fileItem.Name;
                 var units = _dbService.GetTranslationUnits(selectedFile);
                 _translationItems = new ObservableCollection<TranslationRow>(units);
 
-                // Restore columns from DB
                 RestoreDynamicColumns(selectedFile);
 
-                TranslationGrid.ItemsSource = _translationItems;
+                ApplyTableFilter();
+
+                if (BreadcrumbTextBlock != null)
+                {
+                    BreadcrumbTextBlock.Text = Path.Combine("game", selectedFile).Replace('\\', '/');
+                }
+
                 if (_translationItems.Count > 0)
                 {
                     TranslationGrid.SelectedIndex = 0;
@@ -372,7 +612,7 @@ namespace LocKit.App
                     TranslationContextTextBox.Text = string.Empty;
                 }
 
-                AddAiChatBubble($"Loaded translation schema for '{selectedFile}'. Ready to query.");
+                SetStatus($"Loaded file: {selectedFile} ({_translationItems.Count} strings)");
             }
         }
 
@@ -411,7 +651,6 @@ namespace LocKit.App
 
         private void TranslationGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            // Unsubscribe from previous selected row's PropertyChanged event
             if (_selectedRow != null)
             {
                 _selectedRow.PropertyChanged -= SelectedRow_PropertyChanged;
@@ -423,12 +662,24 @@ namespace LocKit.App
                 _selectedRow.PropertyChanged += SelectedRow_PropertyChanged;
                 OriginalContextTextBox.Text = selectedRow.Original;
                 TranslationContextTextBox.Text = selectedRow.Translation;
+
+                if (PropertyRowIdText != null) PropertyRowIdText.Text = selectedRow.Id.ToString();
+                if (PropertyKeyText != null) PropertyKeyText.Text = selectedRow.Key;
+                if (PropertyFileText != null)
+                {
+                    var selectedFile = (FilesListBox.SelectedItem as FileItemViewModel)?.Name ?? "unknown";
+                    PropertyFileText.Text = selectedFile;
+                }
             }
             else
             {
                 _selectedRow = null;
                 OriginalContextTextBox.Text = string.Empty;
                 TranslationContextTextBox.Text = string.Empty;
+
+                if (PropertyRowIdText != null) PropertyRowIdText.Text = "N/A";
+                if (PropertyKeyText != null) PropertyKeyText.Text = "N/A";
+                if (PropertyFileText != null) PropertyFileText.Text = "N/A";
             }
         }
 
@@ -440,6 +691,7 @@ namespace LocKit.App
                 {
                     TranslationContextTextBox.Text = _selectedRow.Translation;
                 }
+                UpdateStats();
             }
         }
 
@@ -451,6 +703,7 @@ namespace LocKit.App
                 {
                     gridRow.Translation = TranslationContextTextBox.Text ?? string.Empty;
                 }
+                UpdateStats();
             }
         }
 
@@ -476,9 +729,9 @@ namespace LocKit.App
             AiInputTextBox.Text = string.Empty;
             AddUserChatBubble(prompt);
 
-            string baseUrl = _dbService.GetSetting("llm_base_url", "https://api.openai.com/v1");
-            string apiKey = _dbService.GetSetting("llm_api_key", "");
-            string model = _dbService.GetSetting("llm_model", "gpt-4o");
+            string baseUrl = _dbService.GetSetting("llm_base_url", "https://api.openai.com/v1", isGlobal: true);
+            string apiKey = _dbService.GetSetting("llm_api_key", "", isGlobal: true);
+            string model = _dbService.GetSetting("llm_model", "gpt-4o", isGlobal: true);
 
             if (string.IsNullOrWhiteSpace(apiKey))
             {
@@ -489,7 +742,7 @@ namespace LocKit.App
             string systemPrompt = "You are an expert game localization assistant for Ren'Py. Help the user refine their translations, verify context, and ensure consistency.";
             if (_selectedRow != null)
             {
-                string activeFile = FilesListBox.SelectedItem as string ?? "unknown";
+                string activeFile = (FilesListBox.SelectedItem as FileItemViewModel)?.Name ?? "unknown";
                 systemPrompt += $"\n\nContext of the current string being translated:\n- File: {activeFile}\n- Key/ID: {_selectedRow.Key}\n- Original Text: \"{_selectedRow.Original}\"\n- Current Translation: \"{_selectedRow.Translation}\"\n\nPlease provide help, suggestions, or answer questions considering this translation context.";
             }
 
@@ -502,17 +755,17 @@ namespace LocKit.App
 
         private void LoadLlmSettings()
         {
-            LlmBaseUrlTextBox.Text = _dbService.GetSetting("llm_base_url", "https://api.openai.com/v1");
-            LlmApiKeyTextBox.Text = _dbService.GetSetting("llm_api_key", "");
-            LlmModelTextBox.Text = _dbService.GetSetting("llm_model", "gpt-4o");
+            LlmBaseUrlTextBox.Text = _dbService.GetSetting("llm_base_url", "https://api.openai.com/v1", isGlobal: true);
+            LlmApiKeyTextBox.Text = _dbService.GetSetting("llm_api_key", "", isGlobal: true);
+            LlmModelTextBox.Text = _dbService.GetSetting("llm_model", "gpt-4o", isGlobal: true);
         }
 
         private void SaveLlmSettings_Click(object sender, RoutedEventArgs e)
         {
-            _dbService.SaveSetting("llm_base_url", LlmBaseUrlTextBox.Text ?? string.Empty);
-            _dbService.SaveSetting("llm_api_key", LlmApiKeyTextBox.Text ?? string.Empty);
-            _dbService.SaveSetting("llm_model", LlmModelTextBox.Text ?? string.Empty);
-            AddAiChatBubble("LLM settings saved successfully!");
+            _dbService.SaveSetting("llm_base_url", LlmBaseUrlTextBox.Text ?? string.Empty, isGlobal: true);
+            _dbService.SaveSetting("llm_api_key", LlmApiKeyTextBox.Text ?? string.Empty, isGlobal: true);
+            _dbService.SaveSetting("llm_model", LlmModelTextBox.Text ?? string.Empty, isGlobal: true);
+            SetStatus("LLM settings saved successfully!");
         }
 
         private void AddUserChatBubble(string message)
@@ -563,7 +816,7 @@ namespace LocKit.App
                 menu.ItemsSource = null;
                 var items = new List<MenuItem>();
                 
-                // 1. If a row is selected, show "Translate with AI (en -> ru)"
+                // 1. If a row is selected, show "Translate with AI" and "Translate with Google (Free)"
                 if (_selectedRow != null)
                 {
                     string targetLang = _dbService.GetSetting("default_target_language", "russian");
@@ -579,6 +832,69 @@ namespace LocKit.App
                         await TranslateActiveRowWithAiAsync();
                     };
                     items.Add(translateItem);
+
+                    var translateGoogleItem = new MenuItem
+                    {
+                        Header = $"Translate with Google (Free)",
+                        Foreground = SolidColorBrush.Parse("#93C5FD")
+                    };
+                    translateGoogleItem.Click += async (sender, args) =>
+                    {
+                        await TranslateActiveRowWithGoogleFreeAsync();
+                    };
+                    items.Add(translateGoogleItem);
+
+                    var wrapCurrentItem = new MenuItem
+                    {
+                        Header = "Auto-wrap current translation (45 chars)"
+                    };
+                    wrapCurrentItem.Click += (sender, args) =>
+                    {
+                        if (_selectedRow != null && !string.IsNullOrEmpty(_selectedRow.Translation))
+                        {
+                            string wrapped = TextProcessor.WordWrap(_selectedRow.Translation, 45);
+                            _selectedRow.Translation = wrapped;
+                            _dbService.UpdateTranslation(_selectedRow.Id, wrapped);
+                            if (TranslationGrid.SelectedItem == _selectedRow)
+                            {
+                                TranslationContextTextBox.Text = wrapped;
+                            }
+                            SetStatus("Applied Word Wrap to selected row.");
+                        }
+                    };
+                    items.Add(wrapCurrentItem);
+
+                    var wrapAllItem = new MenuItem
+                    {
+                        Header = "Auto-wrap all translations in file (45 chars)"
+                    };
+                    wrapAllItem.Click += (sender, args) =>
+                    {
+                        if (_translationItems != null && _translationItems.Count > 0)
+                        {
+                            int count = 0;
+                            foreach (var row in _translationItems)
+                            {
+                                if (!string.IsNullOrEmpty(row.Translation))
+                                {
+                                    string wrapped = TextProcessor.WordWrap(row.Translation, 45);
+                                    if (row.Translation != wrapped)
+                                    {
+                                        row.Translation = wrapped;
+                                        _dbService.UpdateTranslation(row.Id, wrapped);
+                                        count++;
+                                    }
+                                }
+                            }
+                            if (_selectedRow != null && TranslationGrid.SelectedItem == _selectedRow)
+                            {
+                                TranslationContextTextBox.Text = _selectedRow.Translation;
+                            }
+                            SetStatus($"Auto-wrapped {count} translations in the active file.");
+                        }
+                    };
+                    items.Add(wrapAllItem);
+
                     items.Add(new MenuItem { Header = "-" });
                 }
 
@@ -630,13 +946,13 @@ namespace LocKit.App
         {
             if (_selectedRow == null) return;
 
-            string baseUrl = _dbService.GetSetting("llm_base_url", "https://api.openai.com/v1");
-            string apiKey = _dbService.GetSetting("llm_api_key", "");
-            string model = _dbService.GetSetting("llm_model", "gpt-4o");
+            string baseUrl = _dbService.GetSetting("llm_base_url", "https://api.openai.com/v1", isGlobal: true);
+            string apiKey = _dbService.GetSetting("llm_api_key", "", isGlobal: true);
+            string model = _dbService.GetSetting("llm_model", "gpt-4o", isGlobal: true);
 
             if (string.IsNullOrWhiteSpace(apiKey))
             {
-                AddAiChatBubble("Error: LLM API Key is not configured. Please fill in the LLM Settings in the AI panel to use AI translation.");
+                SetStatus("Error: LLM API Key is not configured. Please fill in the LLM Settings in the AI panel to use AI translation.");
                 return;
             }
 
@@ -647,11 +963,9 @@ namespace LocKit.App
             
             string originalText = _selectedRow.Original;
 
-            var thinking = AddAiChatBubble($"Translating string: \"{originalText}\"...");
+            SetStatus($"AI translating: \"{originalText}\"...");
 
             string translation = await _llmService.GetAiResponseAsync(baseUrl, apiKey, model, systemPrompt, originalText);
-            
-            ChatHistoryPanel.Children.Remove(thinking);
 
             if (!translation.StartsWith("Error") && !translation.StartsWith("Exception"))
             {
@@ -665,11 +979,12 @@ namespace LocKit.App
                     TranslationContextTextBox.Text = translation;
                 }
 
-                AddAiChatBubble($"AI translation successful: \"{translation}\"");
+                SetStatus($"AI translation successful: \"{translation}\"");
+                UpdateFilesProgress();
             }
             else
             {
-                AddAiChatBubble($"AI translation failed: {translation}");
+                SetStatus($"AI translation failed: {translation}");
             }
         }
 
@@ -686,17 +1001,20 @@ namespace LocKit.App
                 fileName += ".rpy";
             }
 
-            if (_fileItems.Contains(fileName))
+            if (_fileItems.Any(f => f.Name.Equals(fileName, StringComparison.OrdinalIgnoreCase)))
             {
-                AddAiChatBubble($"Error: A table named '{fileName}' already exists.");
+                SetStatus($"Error: A table named '{fileName}' already exists.");
                 return;
             }
 
             _dbService.ImportRpyFile(fileName, new List<RpyDialogueLine>());
-            _fileItems.Add(fileName);
-            FilesListBox.SelectedItem = fileName;
+            
+            var newItem = new FileItemViewModel { Name = fileName, IsChecked = true };
+            _fileItems.Add(newItem);
+            _fileCheckedSnapshot[fileName] = true;
+            FilesListBox.SelectedItem = newItem;
 
-            AddAiChatBubble($"Created new empty translation table: {fileName}");
+            SetStatus($"Created new empty translation table: {fileName}");
         }
 
         private void AddCustomColumn(string headerName)
@@ -706,9 +1024,9 @@ namespace LocKit.App
 
             foreach (var col in TranslationGrid.Columns)
             {
-                if (col.Header?.ToString().Equals(headerName, StringComparison.OrdinalIgnoreCase) == true)
+                if (string.Equals(col.Header?.ToString(), headerName, StringComparison.OrdinalIgnoreCase))
                 {
-                    AddAiChatBubble($"Error: Column '{headerName}' already exists.");
+                    SetStatus($"Error: Column '{headerName}' already exists.");
                     return;
                 }
             }
@@ -733,7 +1051,218 @@ namespace LocKit.App
             TranslationGrid.ItemsSource = null;
             TranslationGrid.ItemsSource = _translationItems;
 
-            AddAiChatBubble($"Added new custom column '{headerName}'. You can now edit notes in each row. Click Save (Ctrl+S) to persist it.");
+            SetStatus($"Added new custom column '{headerName}'. You can now edit notes in each row. Click Save (Ctrl+S) to persist it.");
         }
+
+        private void SetStatus(string message)
+        {
+            StatusTextBlock.Text = message;
+            System.Diagnostics.Debug.WriteLine(message);
+        }
+
+        private void SavePreBulkSnapshot()
+        {
+            _fileCheckedSnapshot = _fileItems.ToDictionary(f => f.Name, f => f.IsChecked);
+        }
+
+        private void SelectAllFiles_Click(object? sender, RoutedEventArgs e)
+        {
+            SavePreBulkSnapshot();
+            foreach (var item in _fileItems)
+            {
+                item.IsChecked = true;
+            }
+            SetStatus("Selected all files.");
+        }
+
+        private void SelectNoFiles_Click(object? sender, RoutedEventArgs e)
+        {
+            SavePreBulkSnapshot();
+            foreach (var item in _fileItems)
+            {
+                item.IsChecked = false;
+            }
+            SetStatus("Deselected all files.");
+        }
+
+        private void InvertFiles_Click(object? sender, RoutedEventArgs e)
+        {
+            SavePreBulkSnapshot();
+            foreach (var item in _fileItems)
+            {
+                item.IsChecked = !item.IsChecked;
+            }
+            SetStatus("Inverted file selection.");
+        }
+
+        private void RestoreFiles_Click(object? sender, RoutedEventArgs e)
+        {
+            foreach (var item in _fileItems)
+            {
+                if (_fileCheckedSnapshot.TryGetValue(item.Name, out bool val))
+                {
+                    item.IsChecked = val;
+                }
+            }
+            SetStatus("Restored file selection states.");
+        }
+
+        private void SearchTextBox_TextChanged(object? sender, TextChangedEventArgs e)
+        {
+            ApplyTableFilter();
+        }
+
+        private void ShowOnlyUntranslatedCheckBox_IsCheckedChanged(object? sender, RoutedEventArgs e)
+        {
+            ApplyTableFilter();
+        }
+
+        private void ApplyTableFilter()
+        {
+            if (_translationItems == null) return;
+
+            string search = SearchTextBox?.Text ?? string.Empty;
+            bool onlyUntranslated = ShowOnlyUntranslatedCheckBox?.IsChecked == true;
+
+            var filtered = _translationItems.Where(row =>
+            {
+                if (onlyUntranslated && !string.IsNullOrEmpty(row.Translation))
+                    return false;
+
+                if (!string.IsNullOrEmpty(search))
+                {
+                    bool matchOriginal = row.Original?.Contains(search, StringComparison.OrdinalIgnoreCase) == true;
+                    bool matchTranslation = row.Translation?.Contains(search, StringComparison.OrdinalIgnoreCase) == true;
+                    bool matchKey = row.Key?.Contains(search, StringComparison.OrdinalIgnoreCase) == true;
+                    return matchOriginal || matchTranslation || matchKey;
+                }
+
+                return true;
+            }).ToList();
+
+            TranslationGrid.ItemsSource = filtered;
+            UpdateStats();
+        }
+
+        private void UpdateStats()
+        {
+            if (_translationItems == null || GridProgressTextBlock == null) return;
+            int total = _translationItems.Count;
+            int translated = _translationItems.Count(row => !string.IsNullOrEmpty(row.Translation));
+            GridProgressTextBlock.Text = $"{translated} / {total}";
+        }
+
+        private async void BatchTranslateGoogleFree_Click(object? sender, RoutedEventArgs e)
+        {
+            if (_translationItems == null || _translationItems.Count == 0)
+            {
+                SetStatus("No strings to translate in this file.");
+                return;
+            }
+
+            var untranslated = _translationItems.Where(row => string.IsNullOrEmpty(row.Translation)).ToList();
+            if (untranslated.Count == 0)
+            {
+                SetStatus("All strings in this file are already translated!");
+                return;
+            }
+
+            SetStatus($"Batch translating {untranslated.Count} strings via Google Translate (Free)...");
+
+            int translatedCount = 0;
+            string targetLanguage = _dbService.GetSetting("default_target_language", "russian");
+            string targetShort = targetLanguage.Length >= 2 ? targetLanguage.Substring(0, 2).ToLower() : "ru";
+
+            foreach (var row in untranslated)
+            {
+                string translation = await _llmService.TranslateWithGoogleFreeAsync(row.Original, targetShort);
+
+                if (!translation.StartsWith("Error") && !translation.StartsWith("Exception"))
+                {
+                    row.Translation = translation;
+                    _dbService.UpdateTranslation(row.Id, translation);
+                    translatedCount++;
+                    SetStatus($"Translated {translatedCount} / {untranslated.Count} strings...");
+                }
+                else
+                {
+                    SetStatus($"Translation stopped due to error: {translation}");
+                    break;
+                }
+
+                await Task.Delay(100);
+            }
+
+            SetStatus($"Batch translation complete! Translated {translatedCount} strings.");
+            ApplyTableFilter();
+            UpdateFilesProgress();
+        }
+
+        private async Task TranslateActiveRowWithGoogleFreeAsync()
+        {
+            if (_selectedRow == null) return;
+
+            string targetLang = _dbService.GetSetting("default_target_language", "russian");
+            string targetShort = targetLang.Length >= 2 ? targetLang.Substring(0, 2).ToLower() : "ru";
+            string originalText = _selectedRow.Original;
+
+            SetStatus($"Translating via Google: \"{originalText}\"...");
+
+            string translation = await _llmService.TranslateWithGoogleFreeAsync(originalText, targetShort);
+
+            if (!translation.StartsWith("Error") && !translation.StartsWith("Exception"))
+            {
+                _selectedRow.Translation = translation;
+                _dbService.UpdateTranslation(_selectedRow.Id, translation);
+                
+                if (TranslationGrid.SelectedItem == _selectedRow)
+                {
+                    TranslationContextTextBox.Text = translation;
+                }
+
+                SetStatus($"Google translation successful: \"{translation}\"");
+                ApplyTableFilter();
+                UpdateFilesProgress();
+            }
+            else
+            {
+                SetStatus($"Google translation failed: {translation}");
+            }
+        }
+    }
+
+    public class FileItemViewModel : INotifyPropertyChanged
+    {
+        private bool _isChecked = true;
+        private string _name = string.Empty;
+        private string _progressText = string.Empty;
+        private double _progressPercent = 0.0;
+
+        public string Name
+        {
+            get => _name;
+            set { _name = value; OnPropertyChanged(nameof(Name)); }
+        }
+
+        public bool IsChecked
+        {
+            get => _isChecked;
+            set { _isChecked = value; OnPropertyChanged(nameof(IsChecked)); }
+        }
+
+        public string ProgressText
+        {
+            get => _progressText;
+            set { _progressText = value; OnPropertyChanged(nameof(ProgressText)); }
+        }
+
+        public double ProgressPercent
+        {
+            get => _progressPercent;
+            set { _progressPercent = value; OnPropertyChanged(nameof(ProgressPercent)); }
+        }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+        protected void OnPropertyChanged(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }
 }

@@ -71,8 +71,13 @@ namespace LocKit.App.Core
                 using var process = new Process { StartInfo = startInfo };
                 process.Start();
 
-                string output = await process.StandardOutput.ReadToEndAsync();
-                string error = await process.StandardError.ReadToEndAsync();
+                var outputTask = process.StandardOutput.ReadToEndAsync();
+                var errorTask = process.StandardError.ReadToEndAsync();
+
+                await Task.WhenAll(outputTask, errorTask);
+
+                string output = outputTask.Result;
+                string error = errorTask.Result;
 
                 await process.WaitForExitAsync();
 

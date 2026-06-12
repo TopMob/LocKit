@@ -7,9 +7,19 @@ namespace LocKit.App.Core
 {
     public class DbService
     {
-        private const string ConnectionString = "Data Source=lockit.db";
+        private const string GlobalConnectionString = "Data Source=lockit.db";
+        private string _projectDbPath = "lockit.db";
+        private string ProjectConnectionString => $"Data Source={_projectDbPath}";
+        private string ConnectionString => ProjectConnectionString;
 
-        public void InitializeDatabase()
+        public void SetDatabasePath(string path)
+        {
+            _projectDbPath = path;
+        }
+
+        public string GetDatabasePath() => _projectDbPath;
+
+        public void InitializeDatabase(bool seedDemo = false)
         {
             using var connection = new SqliteConnection(ConnectionString);
             connection.Open();
@@ -57,8 +67,11 @@ namespace LocKit.App.Core
                 cmd.ExecuteNonQuery();
             }
 
-            // Seed demo data if database is empty
-            SeedDemoData(connection);
+            // Seed demo data if database is empty and requested
+            if (seedDemo)
+            {
+                SeedDemoData(connection);
+            }
         }
 
         private void SeedDemoData(SqliteConnection connection)
@@ -134,6 +147,31 @@ namespace LocKit.App.Core
                 result.Add(reader.GetString(0));
             }
             return result;
+        }
+
+        public Dictionary<string, (int Total, int Translated)> GetFilesTranslationStats()
+        {
+            var stats = new Dictionary<string, (int Total, int Translated)>();
+            using var connection = new SqliteConnection(ConnectionString);
+            connection.Open();
+
+            string sql = @"
+                SELECT f.name, COUNT(u.id) as total, COUNT(CASE WHEN u.target IS NOT NULL AND u.target != '' THEN 1 END) as translated
+                FROM files f
+                LEFT JOIN translation_units u ON u.file_id = f.id
+                GROUP BY f.name;
+            ";
+
+            using var cmd = new SqliteCommand(sql, connection);
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                string fileName = reader.GetString(0);
+                int total = reader.GetInt32(1);
+                int translated = reader.GetInt32(2);
+                stats[fileName] = (total, translated);
+            }
+            return stats;
         }
 
         public List<TranslationRow> GetTranslationUnits(string fileName)
@@ -326,20 +364,32 @@ namespace LocKit.App.Core
             return result;
         }
 
-        public string GetSetting(string key, string defaultValue = "")
+        public string GetSetting(string key, string defaultValue = "", bool isGlobal = false)
         {
-            using var connection = new SqliteConnection(ConnectionString);
+            using var connection = new SqliteConnection(isGlobal ? GlobalConnectionString : ConnectionString);
             connection.Open();
+
+            using (var cmdCreate = new SqliteCommand("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);", connection))
+            {
+                cmdCreate.ExecuteNonQuery();
+            }
+
             using var cmd = new SqliteCommand("SELECT value FROM settings WHERE key = @key;", connection);
             cmd.Parameters.AddWithValue("@key", key);
             var val = cmd.ExecuteScalar();
             return val != null ? val.ToString() : defaultValue;
         }
 
-        public void SaveSetting(string key, string value)
+        public void SaveSetting(string key, string value, bool isGlobal = false)
         {
-            using var connection = new SqliteConnection(ConnectionString);
+            using var connection = new SqliteConnection(isGlobal ? GlobalConnectionString : ConnectionString);
             connection.Open();
+
+            using (var cmdCreate = new SqliteCommand("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);", connection))
+            {
+                cmdCreate.ExecuteNonQuery();
+            }
+
             using var cmd = new SqliteCommand(@"
                 INSERT INTO settings (key, value) VALUES (@key, @value)
                 ON CONFLICT(key) DO UPDATE SET value = @value;

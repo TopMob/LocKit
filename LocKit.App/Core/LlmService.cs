@@ -30,6 +30,8 @@ namespace LocKit.App.Core
 
             try
             {
+                string escapedUserMessage = TextProcessor.EscapeTags(userMessage, out var tags);
+
                 // Ensure URL ends with a slash if needed, and construct /chat/completions endpoint
                 string url = baseUrl.Trim();
                 if (!url.EndsWith("/"))
@@ -44,7 +46,7 @@ namespace LocKit.App.Core
                     messages = new[]
                     {
                         new { role = "system", content = systemPrompt },
-                        new { role = "user", content = userMessage }
+                        new { role = "user", content = escapedUserMessage }
                     }
                 };
 
@@ -67,7 +69,8 @@ namespace LocKit.App.Core
                     var message = choices[0].GetProperty("message");
                     if (message.TryGetProperty("content", out var contentElement))
                     {
-                        return contentElement.GetString() ?? "Error: Empty response content.";
+                        string result = contentElement.GetString() ?? "Error: Empty response content.";
+                        return TextProcessor.UnescapeTags(result, tags);
                     }
                 }
 
@@ -76,6 +79,36 @@ namespace LocKit.App.Core
             catch (Exception ex)
             {
                 return $"Exception occurred: {ex.Message}";
+            }
+        }
+        public async Task<string> TranslateWithGoogleFreeAsync(string text, string targetLanguage = "ru")
+        {
+            try
+            {
+                string escapedText = TextProcessor.EscapeTags(text, out var tags);
+                string url = $"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl={targetLanguage}&dt=t&q={Uri.EscapeDataString(escapedText)}";
+                string response = await _httpClient.GetStringAsync(url);
+                
+                using var doc = JsonDocument.Parse(response);
+                var firstArray = doc.RootElement[0];
+                
+                var translationBuilder = new StringBuilder();
+                foreach (var item in firstArray.EnumerateArray())
+                {
+                    if (item.GetArrayLength() > 0)
+                    {
+                        var translatedPart = item[0].GetString();
+                        if (translatedPart != null)
+                        {
+                            translationBuilder.Append(translatedPart);
+                        }
+                    }
+                }
+                return TextProcessor.UnescapeTags(translationBuilder.ToString(), tags);
+            }
+            catch (Exception ex)
+            {
+                return $"Error: {ex.Message}";
             }
         }
     }
