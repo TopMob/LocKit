@@ -1,0 +1,44 @@
+# .NET / C#
+bin/
+obj/
+*.user
+*.suo
+.vs/
+*.DotSettings.user
+*.ncrunchproject
+
+# Avalonia
+_ReSharper*/
+
+# Rust / Cargo
+lockit-parser/target/
+
+# SQLite databases
+*.db
+*.db-shm
+*.db-wal
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.idea/
+.vscode/settings.json
+*.swp
+*.swo
+
+# Build artifacts
+*.dll
+*.pdb
+*.exp
+*.lib
+!LocKit.App/lockit_parser.dll
+
+# Logs
+*.log
+
+# Temp
+*.tmp
+*.temp
