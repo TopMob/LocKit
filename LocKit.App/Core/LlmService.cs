@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
@@ -81,6 +82,103 @@ namespace LocKit.App.Core
                 return $"Exception occurred: {ex.Message}";
             }
         }
+
+        public async Task<Dictionary<int, string>> TranslateBatchAsync(string baseUrl, string apiKey, string model, string systemPrompt, Dictionary<int, string> batchItems)
+        {
+            var result = new Dictionary<int, string>();
+            if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(model))
+            {
+                return result;
+            }
+
+            try
+            {
+                string url = baseUrl.Trim();
+                if (!url.EndsWith("/"))
+                {
+                    url += "/";
+                }
+                url += "chat/completions";
+
+                var itemsList = new List<object>();
+                foreach (var kv in batchItems)
+                {
+                    itemsList.Add(new { id = kv.Key, text = kv.Value });
+                }
+
+                string itemsJson = JsonSerializer.Serialize(itemsList);
+                string userMessage = $"Translate the following texts:\n{itemsJson}";
+
+                var payload = new
+                {
+                    model = model.Trim(),
+                    messages = new[]
+                    {
+                        new { role = "system", content = systemPrompt },
+                        new { role = "user", content = userMessage }
+                    },
+                    response_format = new { type = "json_object" }
+                };
+
+                string jsonPayload = JsonSerializer.Serialize(payload);
+                using var request = new HttpRequestMessage(HttpMethod.Post, url);
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey.Trim());
+                request.Content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
+
+                using var response = await _httpClient.SendAsync(request);
+                string responseBody = await response.Content.ReadAsStringAsync();
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    return result;
+                }
+
+                using var doc = JsonDocument.Parse(responseBody);
+                if (doc.RootElement.TryGetProperty("choices", out var choices) && choices.GetArrayLength() > 0)
+                {
+                    var message = choices[0].GetProperty("message");
+                    if (message.TryGetProperty("content", out var contentElement))
+                    {
+                        string content = contentElement.GetString() ?? "";
+                        content = CleanJsonResponse(content);
+
+                        using var contentDoc = JsonDocument.Parse(content);
+                        if (contentDoc.RootElement.TryGetProperty("translations", out var translationsProp))
+                        {
+                            foreach (var item in translationsProp.EnumerateArray())
+                            {
+                                if (item.TryGetProperty("id", out var idProp) && item.TryGetProperty("translation", out var transProp))
+                                {
+                                    result[idProp.GetInt32()] = transProp.GetString() ?? "";
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            return result;
+        }
+
+        private static string CleanJsonResponse(string content)
+        {
+            content = content.Trim();
+            if (content.StartsWith("```"))
+            {
+                int firstNewLine = content.IndexOf('\n');
+                if (firstNewLine != -1)
+                {
+                    content = content.Substring(firstNewLine).Trim();
+                }
+                if (content.EndsWith("```"))
+                {
+                    content = content.Substring(0, content.Length - 3).Trim();
+                }
+            }
+            return content;
+        }
+
         public async Task<string> TranslateWithGoogleFreeAsync(string text, string targetLanguage = "ru")
         {
             try

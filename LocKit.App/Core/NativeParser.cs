@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
-using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace LocKit.App.Core
@@ -16,12 +15,6 @@ namespace LocKit.App.Core
 
         [LibraryImport(DllName)]
         private static partial void free_string(IntPtr ptr);
-
-        [LibraryImport(DllName, StringMarshalling = StringMarshalling.Utf8)]
-        private static partial IntPtr parse_rpy_file(string path);
-
-        [LibraryImport(DllName, StringMarshalling = StringMarshalling.Utf8)]
-        private static partial IntPtr export_tl_file(string outputPath, string unitsJson, string language);
 
         public static string GetVersion()
         {
@@ -47,47 +40,12 @@ namespace LocKit.App.Core
 
         public static List<RpyDialogueLine> ParseRpyFile(string filePath)
         {
-            try
-            {
-                IntPtr ptr = parse_rpy_file(filePath);
-                if (ptr == IntPtr.Zero)
-                    return new List<RpyDialogueLine>();
-
-                string json = Marshal.PtrToStringAnsi(ptr) ?? "[]";
-                free_string(ptr);
-
-                if (json.StartsWith("{\"error\""))
-                    return new List<RpyDialogueLine>();
-
-                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                return JsonSerializer.Deserialize<List<RpyDialogueLine>>(json, options)
-                    ?? new List<RpyDialogueLine>();
-            }
-            catch (Exception)
-            {
-                return new List<RpyDialogueLine>();
-            }
+            return RenpyParser.Parse(filePath);
         }
 
         public static string? ExportTlFile(string outputPath, IEnumerable<ExportUnit> units, string language = "russian")
         {
-            try
-            {
-                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                string unitsJson = JsonSerializer.Serialize(units.ToList(), options);
-
-                IntPtr result = export_tl_file(outputPath, unitsJson, language);
-                if (result == IntPtr.Zero)
-                    return null;
-
-                string error = Marshal.PtrToStringAnsi(result) ?? "Unknown error";
-                free_string(result);
-                return error;
-            }
-            catch (Exception ex)
-            {
-                return ex.Message;
-            }
+            return RenpyParser.Export(outputPath, units, language);
         }
     }
 
@@ -101,6 +59,9 @@ namespace LocKit.App.Core
 
         [JsonPropertyName("source")]
         public string Source { get; set; } = string.Empty;
+
+        [JsonPropertyName("translation")]
+        public string Translation { get; set; } = string.Empty;
     }
 
     public class ExportUnit
@@ -113,5 +74,8 @@ namespace LocKit.App.Core
 
         [JsonPropertyName("target")]
         public string Target { get; set; } = string.Empty;
+
+        [JsonPropertyName("character")]
+        public string Character { get; set; } = string.Empty;
     }
 }

@@ -1,71 +1,190 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace LocKit.App.Core
 {
     public class DecompilerService
     {
-        public async Task<bool> DecompileFolderIfNeededAsync(string folderPath, Action<string> logCallback)
+        public async Task<bool> DecompileAndGenerateAsync(string gameExe, string gameRoot, string language, Action<string> logCallback)
         {
-            logCallback("Starting .rpyc decompilation check...");
-
-            // 1. Check Python
-            logCallback("Checking Python installation...");
-            var (pythonOk, pythonVersion) = await RunCommandAsync("python", "--version");
-            if (!pythonOk)
+            string gameDir = Path.Combine(gameRoot, "game");
+            if (!Directory.Exists(gameDir))
             {
-                logCallback("Error: Python is not installed or not added to system PATH. Please install Python 3.9+ to decompile .rpyc files.");
-                return false;
+                gameDir = gameRoot;
             }
-            logCallback($"Python detected: {pythonVersion.Trim()}");
 
-            // 2. Check rpycdec
-            logCallback("Checking for rpycdec tool...");
-            var (rpycdecOk, _) = await RunCommandAsync("python", "-c \"import rpycdec\"");
-            if (!rpycdecOk)
+            bool hasPython = await CheckPythonAvailableAsync();
+            if (hasPython)
             {
-                logCallback("rpycdec tool is not installed. Attempting to install it via pip...");
-                var (pipOk, pipOutput) = await RunCommandAsync("python", "-m pip install rpycdec");
-                if (!pipOk)
+                bool rpycdecInstalled = await EnsureRpycDecInstalledAsync(logCallback);
+                if (rpycdecInstalled)
                 {
-                    logCallback($"Error: Failed to install rpycdec via pip.\nDetails:\n{pipOutput}");
-                    logCallback("Please run 'pip install rpycdec' manually in your terminal.");
-                    return false;
+                    await UnpackRpaArchivesAsync(gameDir, logCallback);
+                    await DecompileRpycFilesAsync(gameDir, logCallback);
                 }
-                logCallback("rpycdec successfully installed!");
             }
             else
             {
-                logCallback("rpycdec tool is already installed.");
+                logCallback("Python is not installed or not in PATH. Skipping RPA/RPYC decompilation step.");
             }
 
-            // 3. Run Decompiler
-            logCallback($"Decompiling .rpyc files in: {folderPath}...");
-            var (decompileOk, decompileOutput) = await RunCommandAsync("python", $"-m rpycdec decompile \"{folderPath}\"");
-            if (!decompileOk)
-            {
-                logCallback($"Error during decompilation:\n{decompileOutput}");
-                return false;
-            }
-
-            logCallback("Decompilation completed successfully! All .rpyc files have been decompiled to .rpy.");
-            return true;
+            return await GenerateTranslationsAsync(gameExe, gameRoot, language, logCallback);
         }
 
-        private async Task<(bool Success, string Output)> RunCommandAsync(string fileName, string arguments)
+        private async Task<bool> CheckPythonAvailableAsync()
         {
             try
             {
                 var startInfo = new ProcessStartInfo
                 {
-                    FileName = fileName,
-                    Arguments = arguments,
+                    FileName = "python",
+                    Arguments = "--version",
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false,
                     CreateNoWindow = true
+                };
+                using var process = Process.Start(startInfo);
+                if (process != null)
+                {
+                    await process.WaitForExitAsync();
+                    return process.ExitCode == 0;
+                }
+            }
+            catch
+            {
+            }
+            return false;
+        }
+
+        private async Task<bool> EnsureRpycDecInstalledAsync(Action<string> logCallback)
+        {
+            try
+            {
+                var checkInfo = new ProcessStartInfo
+                {
+                    FileName = "python",
+                    Arguments = "-c \"import rpycdec\"",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                using (var process = Process.Start(checkInfo))
+                {
+                    if (process != null)
+                    {
+                        await process.WaitForExitAsync();
+                        if (process.ExitCode == 0) return true;
+                    }
+                }
+
+                logCallback("Installing rpycdec library via pip...");
+                var installInfo = new ProcessStartInfo
+                {
+                    FileName = "python",
+                    Arguments = "-m pip install rpycdec",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                using (var process = Process.Start(installInfo))
+                {
+                    if (process != null)
+                    {
+                        await process.WaitForExitAsync();
+                        return process.ExitCode == 0;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logCallback($"Error verifying/installing rpycdec: {ex.Message}");
+            }
+            return false;
+        }
+
+        private async Task UnpackRpaArchivesAsync(string gameDir, Action<string> logCallback)
+        {
+            try
+            {
+                var rpaFiles = Directory.GetFiles(gameDir, "*.rpa", SearchOption.AllDirectories);
+                if (rpaFiles.Length == 0) return;
+
+                logCallback($"Found {rpaFiles.Length} RPA archive(s). Extracting...");
+                foreach (string rpa in rpaFiles)
+                {
+                    logCallback($"Extracting {Path.GetFileName(rpa)}...");
+                    var startInfo = new ProcessStartInfo
+                    {
+                        FileName = "python",
+                        Arguments = $"-m rpycdec unrpa \"{rpa}\" -o \"{gameDir}\"",
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    };
+                    using var process = Process.Start(startInfo);
+                    if (process != null)
+                    {
+                        await process.WaitForExitAsync();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logCallback($"RPA extraction error: {ex.Message}");
+            }
+        }
+
+        private async Task DecompileRpycFilesAsync(string gameDir, Action<string> logCallback)
+        {
+            try
+            {
+                var rpycFiles = Directory.GetFiles(gameDir, "*.rpyc", SearchOption.AllDirectories);
+                if (rpycFiles.Length == 0) return;
+
+                logCallback($"Found {rpycFiles.Length} RPYC file(s). Decompiling...");
+                var startInfo = new ProcessStartInfo
+                {
+                    FileName = "python",
+                    Arguments = $"-m rpycdec decompile \"{gameDir}\"",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                using var process = Process.Start(startInfo);
+                if (process != null)
+                {
+                    await process.WaitForExitAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                logCallback($"RPYC decompilation error: {ex.Message}");
+            }
+        }
+
+        public async Task<bool> GenerateTranslationsAsync(string gameExe, string gameRoot, string language, Action<string> logCallback)
+        {
+            logCallback($"Starting Ren'Py native translation generator for {language}...");
+
+            try
+            {
+                var startInfo = new ProcessStartInfo
+                {
+                    FileName = gameExe,
+                    Arguments = $"\"{gameRoot}\" translate {language}",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    WorkingDirectory = gameRoot
                 };
 
                 using var process = new Process { StartInfo = startInfo };
@@ -82,17 +201,22 @@ namespace LocKit.App.Core
                 await process.WaitForExitAsync();
 
                 bool success = process.ExitCode == 0;
-                string result = success ? output : error;
-                if (string.IsNullOrEmpty(result))
+                
+                if (success)
                 {
-                    result = output + "\n" + error;
+                    logCallback("Translation generation successful.");
+                    return true;
                 }
-
-                return (success, result);
+                else
+                {
+                    logCallback($"Translation generation failed (Exit code {process.ExitCode}).\nError: {error}");
+                    return false;
+                }
             }
             catch (Exception ex)
             {
-                return (false, ex.Message);
+                logCallback($"Exception while running translation generator: {ex.Message}");
+                return false;
             }
         }
     }

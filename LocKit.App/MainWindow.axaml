@@ -88,12 +88,42 @@
             <Setter Property="Background" Value="#241B35"/>
             <Setter Property="Foreground" Value="#D8B4FE"/>
         </Style>
+
+        <!-- Compact TreeView Item Styling -->
+        <Style Selector="TreeViewItem">
+            <Setter Property="MinHeight" Value="20"/>
+            <Setter Property="Padding" Value="2,1"/>
+        </Style>
+
+        <!-- Segmented Button Style -->
+        <Style Selector="Button.seg-btn">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="CornerRadius" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.1" Easing="CubicEaseOut"/>
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Button.seg-btn:pointerover">
+            <Setter Property="Background" Value="#22222E"/>
+        </Style>
+        <Style Selector="Button.seg-btn:pressed">
+            <Setter Property="Background" Value="#0F0F14"/>
+        </Style>
     </Window.Styles>
 
     <Grid RowDefinitions="*, 24">
 
-        <!-- Main Workspace Split Grid -->
-        <Grid Grid.Row="0" x:Name="WorkspaceGrid" ColumnDefinitions="*, 1, Auto">
+        <LayoutTransformControl Grid.Row="0" x:Name="MainLayoutTransform" IsVisible="False">
+            <LayoutTransformControl.LayoutTransform>
+                <ScaleTransform ScaleX="1" ScaleY="1" />
+            </LayoutTransformControl.LayoutTransform>
+
+            <!-- Main Workspace Split Grid -->
+            <Grid x:Name="WorkspaceGrid" ColumnDefinitions="*, 1, Auto">
             
             <!-- Left Side Area (Toolbar & Code/Content) -->
             <Grid Grid.Column="0" RowDefinitions="48, *">
@@ -103,10 +133,16 @@
                     <Grid ColumnDefinitions="*, Auto">
                         <!-- Left Side Buttons -->
                         <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <!-- Logo / Branding -->
+                            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,0,16,0" VerticalAlignment="Center">
+                                <Path Data="M12,2A5,5 0 0,1 17,7V10H18A2,2 0 0,1 20,12V20A2,2 0 0,1 18,22H6A2,2 0 0,1 4,20V12A2,2 0 0,1 6,10H7V7A5,5 0 0,1 12,2M12,4A3,3 0 0,0 9,7V10H15V7A3,3 0 0,0 12,4M12,12A3,3 0 0,0 9,15V17H15V15A3,3 0 0,0 12,12Z" Fill="#8B5CF6" Width="18" Height="18" Stretch="Uniform"/>
+                                <TextBlock Text="LocKit" FontWeight="Bold" FontSize="14" Foreground="#E2E8F0" VerticalAlignment="Center" LetterSpacing="1"/>
+                            </StackPanel>
+
                             <!-- New Project Button -->
                             <Button Classes="toolbar-btn" Click="NewProject_Click" ToolTip.Tip="New Project (Ctrl+N)">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <TextBlock Text="🆕" FontSize="11"/>
+                                    <Path Data="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z" Fill="#CCCCCC" Width="12" Height="12" Stretch="Uniform"/>
                                     <TextBlock Text="New Project" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
@@ -114,7 +150,7 @@
                             <!-- Open Project Button -->
                             <Button Classes="toolbar-btn" Click="OpenProject_Click" ToolTip.Tip="Open Project (Ctrl+O)">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <TextBlock Text="📂" FontSize="11"/>
+                                    <Path Data="M10,4H4C2.89,4 2,4.89 2,6V18A2,2 0 0,0 4,20H20A2,2 0 0,0 22,18V8C22,6.89 21.1,6 20,6H12L10,4Z" Fill="#CCCCCC" Width="12" Height="12" Stretch="Uniform"/>
                                     <TextBlock Text="Open Project" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
@@ -122,25 +158,25 @@
                             <!-- Import Folder Button -->
                             <Button Classes="toolbar-btn" Click="OpenFile_Click" ToolTip.Tip="Import Game Folder (Ctrl+I)">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <TextBlock Text="📥" FontSize="11"/>
+                                    <Path Data="M19,9H15V3H9V9H5L12,16L19,9M5,18V20H19V18H5Z" Fill="#CCCCCC" Width="12" Height="12" Stretch="Uniform"/>
                                     <TextBlock Text="Import Folder" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
                             
                             <!-- Save Button (Icon Only) -->
                             <Button Classes="toolbar-btn" Click="SaveFile_Click" Width="32" Height="32" Padding="0" ToolTip.Tip="Save Translation (Ctrl+S)">
-                                <TextBlock Text="💾" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                <Path Data="M15,9H5V5H15M12,19A3,3 0 0,1 9,16A3,3 0 0,1 12,13A3,3 0 0,1 15,16A3,3 0 0,1 12,19M17,3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V7L17,3Z" Fill="#CCCCCC" Width="16" Height="16" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Button>
                             
                             <!-- Export Button (Icon Only, Custom Icon) -->
                             <Button Classes="toolbar-btn" Click="Export_Click" Width="32" Height="32" Padding="0" ToolTip.Tip="Export to game/tl/">
-                                <TextBlock Text="🚀" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                <Path Data="M14,2L20,8V20A2,2 0 0,1 18,22H6A2,2 0 0,1 4,20V4A2,2 0 0,1 6,2H14M18,20V9H13V4H6V20H18M12,12L16,16H13.5V19H10.5V16H8L12,12Z" Fill="#CCCCCC" Width="16" Height="16" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Button>
                         </StackPanel>
                         
                         <!-- Right Side AI Toggle Button -->
                         <Button Grid.Column="1" x:Name="AiToggleButton" Click="ToggleAiPanel_Click" Width="32" Height="32" Padding="0" Background="#16161F" BorderBrush="#252533" CornerRadius="3" ToolTip.Tip="Toggle AI Chat (Ctrl+L)">
-                            <TextBlock Text="✨" FontSize="14" Foreground="#F472B6" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            <Path Data="M12,2L14.5,8.5L21,11L14.5,13.5L12,20L9.5,13.5L3,11L9.5,8.5L12,2M12,6L10.8,9.2L7.6,10.4L10.8,11.6L12,14.8L13.2,11.6L16.4,10.4L13.2,9.2L12,6Z" Fill="#F472B6" Width="16" Height="16" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Button>
                     </Grid>
                 </Border>
@@ -151,36 +187,53 @@
                     <Border Grid.Column="0" Background="#0A0A0D" BorderBrush="#1C1C24" BorderThickness="0,0,1,0" Padding="12">
                         <Grid RowDefinitions="Auto, *, Auto">
                             <TextBlock Grid.Row="0" Text="TRANSLATION FILES" FontSize="10" FontWeight="Bold" Foreground="#5B5E6B" LetterSpacing="1" Margin="4,0,0,12"/>
-                            <ListBox Grid.Row="1" x:Name="FilesListBox" Classes="sidebar-list" SelectionChanged="FilesListBox_SelectionChanged">
-                                <ListBox.ContextMenu>
+                            <TreeView Grid.Row="1" x:Name="FilesTreeView" SelectionChanged="FilesTreeView_SelectedItemChanged" Background="Transparent" BorderThickness="0">
+                                <TreeView.ContextMenu>
                                     <ContextMenu>
-                                        <MenuItem Header="Create New Table" Click="CreateNewTable_Click"/>
+                                        <MenuItem Header="Remove from project" Click="RemoveFile_Click"/>
                                     </ContextMenu>
-                                </ListBox.ContextMenu>
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate>
+                                </TreeView.ContextMenu>
+                                <TreeView.ItemTemplate>
+                                    <TreeDataTemplate ItemsSource="{Binding Children}">
                                         <Grid ColumnDefinitions="Auto, *, Auto" HorizontalAlignment="Stretch">
-                                            <CheckBox Grid.Column="0" IsChecked="{Binding IsChecked, Mode=TwoWay}" Margin="0,0,8,0" Focusable="False" VerticalAlignment="Center"/>
-                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                                <TextBlock Text="📄" Foreground="#888888" VerticalAlignment="Center" FontSize="12"/>
-                                                <TextBlock Text="{Binding Name}" VerticalAlignment="Center" FontSize="13" TextTrimming="CharacterEllipsis"/>
+                                            <CheckBox Grid.Column="0" IsChecked="{Binding IsChecked, Mode=TwoWay}" Margin="0,0,6,0" Focusable="False" VerticalAlignment="Center"/>
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding IconText}" Foreground="#888888" VerticalAlignment="Center" FontSize="10"/>
+                                                <TextBlock Text="{Binding Name}" VerticalAlignment="Center" FontSize="11" TextTrimming="CharacterEllipsis"/>
                                             </StackPanel>
-                                            <TextBlock Grid.Column="2" Text="{Binding ProgressText}" FontSize="11" Foreground="#5B5E6B" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding ProgressText}" FontSize="9" Foreground="#5B5E6B" VerticalAlignment="Center" Margin="6,0,0,0"/>
                                         </Grid>
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
+                                    </TreeDataTemplate>
+                                </TreeView.ItemTemplate>
+                            </TreeView>
 
-                            <!-- Sidebar Selection Actions -->
-                            <StackPanel Grid.Row="2" Spacing="6" Margin="0,12,0,0">
-                                <Grid ColumnDefinitions="*, *">
-                                    <Button Grid.Column="0" Content="Все" Classes="toolbar-btn" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Click="SelectAllFiles_Click" FontSize="11" Margin="0,0,4,0"/>
-                                    <Button Grid.Column="1" Content="Снять" Classes="toolbar-btn" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Click="SelectNoFiles_Click" FontSize="11" Margin="4,0,0,0"/>
-                                </Grid>
-                                <Grid ColumnDefinitions="*, *">
-                                    <Button Grid.Column="0" Content="Инверсия" Classes="toolbar-btn" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Click="InvertFiles_Click" FontSize="11" Margin="0,0,4,0"/>
-                                    <Button Grid.Column="1" Content="Сбросить" Classes="toolbar-btn" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Click="RestoreFiles_Click" FontSize="11" Margin="4,0,0,0"/>
-                                </Grid>
+                            <!-- Sidebar Footer: Selection Actions & Remove File -->
+                            <StackPanel Grid.Row="2" Spacing="8" Margin="0,12,0,0">
+                                <Border BorderBrush="#1C1C24" BorderThickness="1" CornerRadius="4" Background="#16161F" Height="28">
+                                    <Grid ColumnDefinitions="*, 1, *, 1, *, 1, *">
+                                        <Button Grid.Column="0" Classes="seg-btn" Click="SelectAllFiles_Click" ToolTip.Tip="Выбрать все">
+                                            <Path Data="M18,7L9.4,15.6L5.6,11.8L7,10.4L9.4,12.8L16.6,5.6L18,7M21,11A10,10 0 0,1 11,21A10,10 0 0,1 1,11A10,10 0 0,1 11,1A10,10 0 0,1 21,11M19,11A8,8 0 0,0 11,3A8,8 0 0,0 3,11A8,8 0 0,0 11,19A8,8 0 0,0 19,11Z" Fill="#A0A0AA" Width="12" Height="12" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Button>
+                                        <Rectangle Grid.Column="1" Fill="#1C1C24" VerticalAlignment="Stretch"/>
+                                        <Button Grid.Column="2" Classes="seg-btn" Click="SelectNoFiles_Click" ToolTip.Tip="Снять выделение">
+                                            <Path Data="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4M12,10.59L14.59,8L16,9.41L13.41,12L16,14.59L14.59,16L12,13.41L9.41,16L8,14.59L10.59,12L8,9.41L9.41,8L12,10.59Z" Fill="#A0A0AA" Width="12" Height="12" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Button>
+                                        <Rectangle Grid.Column="3" Fill="#1C1C24" VerticalAlignment="Stretch"/>
+                                        <Button Grid.Column="4" Classes="seg-btn" Click="InvertFiles_Click" ToolTip.Tip="Инвертировать">
+                                            <Path Data="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20V4Z" Fill="#A0A0AA" Width="12" Height="12" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Button>
+                                        <Rectangle Grid.Column="5" Fill="#1C1C24" VerticalAlignment="Stretch"/>
+                                        <Button Grid.Column="6" Classes="seg-btn" Click="RestoreFiles_Click" ToolTip.Tip="Вернуть">
+                                            <Path Data="M13.5,7A6.5,6.5 0 0,1 20,13.5A6.5,6.5 0 0,1 13.5,20H10V18H13.5C16,18 18,16 18,13.5C18,11 16,9 13.5,9H7.83L10.91,12.09L9.5,13.5L4,8L9.5,2.5L10.92,3.91L7.83,7H13.5M6,18H8V20H6V18Z" Fill="#A0A0AA" Width="12" Height="12" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Button>
+                                    </Grid>
+                                </Border>
+                                <Button Classes="toolbar-btn" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Click="RemoveFile_Click" Height="30" ToolTip.Tip="Удалить выбранный файл из проекта">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Path Data="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z" Fill="#EF4444" Width="12" Height="12" Stretch="Uniform"/>
+                                        <TextBlock Text="Удалить файл" FontSize="11" Foreground="#EF4444" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
                             </StackPanel>
                         </Grid>
                     </Border>
@@ -229,7 +282,7 @@
                                   HeadersVisibility="Column"
                                   SelectionChanged="TranslationGrid_SelectionChanged">
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="60" IsReadOnly="True" />
+                                <DataGridTextColumn Header="#" Binding="{Binding Index}" Width="60" IsReadOnly="True" />
                                 <DataGridTextColumn Header="Key/Context" Binding="{Binding Key}" Width="150" IsReadOnly="True" />
                                 <DataGridTextColumn Header="Original String" Binding="{Binding Original}" Width="350" IsReadOnly="True" />
                                 <DataGridTextColumn Header="Translation" Binding="{Binding Translation}" Width="350" IsReadOnly="False" />
@@ -251,7 +304,7 @@
                                         <Border Background="#0F0F14" BorderBrush="#1C1C24" BorderThickness="1" CornerRadius="3" Padding="12" Margin="0,8,0,0">
                                             <StackPanel Spacing="8">
                                                 <Grid ColumnDefinitions="100, *">
-                                                    <TextBlock Grid.Column="0" Text="Row ID:" Foreground="#5B5E6B" FontSize="11"/>
+                                                    <TextBlock Grid.Column="0" Text="Row Number:" Foreground="#5B5E6B" FontSize="11"/>
                                                     <TextBlock Grid.Column="1" x:Name="PropertyRowIdText" Text="N/A" Foreground="#CCCCCC" FontSize="11" FontWeight="Medium"/>
                                                 </Grid>
                                                 <Grid ColumnDefinitions="100, *">
@@ -337,6 +390,70 @@
             </Border>
 
         </Grid>
+        </LayoutTransformControl>
+
+        <!-- Welcome Overlay -->
+        <Border Grid.Row="0" x:Name="WelcomeOverlay" Background="#0A0A0F" IsVisible="True">
+            <Grid RowDefinitions="Auto, Auto, *">
+                <!-- Top Header -->
+                <StackPanel Grid.Row="0" Margin="40,60,40,20" Spacing="8">
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <Path Data="M12 2L2 7L12 12L22 7L12 2M2 17L12 22L22 17M2 12L12 17L22 12" Stroke="#8B5CF6" StrokeThickness="3" Fill="Transparent" Width="36" Height="36" Stretch="Uniform"/>
+                        <TextBlock Text="LocKit" FontWeight="Bold" FontSize="32" Foreground="#E2E8F0" VerticalAlignment="Center" LetterSpacing="2"/>
+                    </StackPanel>
+                    <TextBlock Text="Универсальный и сверхбыстрый инструмент локализации игр на базе ИИ" FontSize="14" Foreground="#71717A" />
+                </StackPanel>
+
+                <!-- Cards Grid -->
+                <UniformGrid Grid.Row="1" Columns="3" Margin="40,20" Height="140">
+                    <!-- New Project Card -->
+                    <Button Classes="toolbar-btn" Margin="8" Padding="20" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Click="NewProject_Click">
+                        <StackPanel Spacing="10" VerticalAlignment="Center">
+                            <Path Data="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z" Fill="#8B5CF6" Width="24" Height="24" Stretch="Uniform" HorizontalAlignment="Center"/>
+                            <TextBlock Text="Новый проект" FontSize="14" FontWeight="SemiBold" Foreground="#FFFFFF" HorizontalAlignment="Center"/>
+                            <TextBlock Text="Создать пустую базу перевода" FontSize="11" Foreground="#71717A" HorizontalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+
+                    <!-- Open Project Card -->
+                    <Button Classes="toolbar-btn" Margin="8" Padding="20" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Click="OpenProject_Click">
+                        <StackPanel Spacing="10" VerticalAlignment="Center">
+                            <Path Data="M10,4H4C2.89,4 2,4.89 2,6V18A2,2 0 0,0 4,20H20A2,2 0 0,0 22,18V8C22,6.89 21.1,6 20,6H12L10,4Z" Fill="#8B5CF6" Width="24" Height="24" Stretch="Uniform" HorizontalAlignment="Center"/>
+                            <TextBlock Text="Открыть проект" FontSize="14" FontWeight="SemiBold" Foreground="#FFFFFF" HorizontalAlignment="Center"/>
+                            <TextBlock Text="Открыть существующий проект .db" FontSize="11" Foreground="#71717A" HorizontalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+
+                    <!-- Import Folder Card -->
+                    <Button Classes="toolbar-btn" Margin="8" Padding="20" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Click="OpenFile_Click">
+                        <StackPanel Spacing="10" VerticalAlignment="Center">
+                            <Path Data="M19,9H15V3H9V9H5L12,16L19,9M5,18V20H19V18H5Z" Fill="#8B5CF6" Width="24" Height="24" Stretch="Uniform" HorizontalAlignment="Center"/>
+                            <TextBlock Text="Импорт папки" FontSize="14" FontWeight="SemiBold" Foreground="#FFFFFF" HorizontalAlignment="Center"/>
+                            <TextBlock Text="Импортировать ресурсы игры (Ren'Py)" FontSize="11" Foreground="#71717A" HorizontalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                </UniformGrid>
+
+                <!-- Recent Projects / Tips Section -->
+                <Border Grid.Row="2" Background="#0C0C14" BorderBrush="#1C1C24" BorderThickness="0,1,0,0" Padding="48,30" Margin="0,30,0,0">
+                    <Grid ColumnDefinitions="*, *">
+                        <StackPanel Grid.Column="0" Spacing="12">
+                            <TextBlock Text="НЕДАВНИЕ ПРОЕКТЫ" FontSize="11" FontWeight="Bold" Foreground="#5B5E6B" LetterSpacing="1"/>
+                            <StackPanel x:Name="RecentProjectsPanel" Spacing="6">
+                                <TextBlock Text="Нет недавно открытых проектов" FontSize="12" Foreground="#71717A" />
+                            </StackPanel>
+                        </StackPanel>
+                        
+                        <StackPanel Grid.Column="1" Spacing="12" Margin="40,0,0,0">
+                            <TextBlock Text="СОВЕТЫ ПО ИСПОЛЬЗОВАНИЮ" FontSize="11" FontWeight="Bold" Foreground="#5B5E6B" LetterSpacing="1"/>
+                            <TextBlock Text="• Используйте Ctrl + T для перевода выбранной строки через ИИ." FontSize="12" Foreground="#A0A0AA" Margin="0,2"/>
+                            <TextBlock Text="• Нажмите Ctrl + + или Ctrl + - для изменения масштаба интерфейса." FontSize="12" Foreground="#A0A0AA" Margin="0,2"/>
+                            <TextBlock Text="• Для Ren'Py просто укажите папку игры, и LocKit автоматически сгенерирует перевод." FontSize="12" Foreground="#A0A0AA" Margin="0,2"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Border>
 
         <!-- Bottom Status Bar -->
         <Border Grid.Row="1" Background="#0E0E14" BorderBrush="#1C1C24" BorderThickness="0,1,0,0" Padding="12,0">
@@ -344,6 +461,33 @@
                 <TextBlock x:Name="StatusTextBlock" Text="Ready" FontSize="11" Foreground="#888888" VerticalAlignment="Center"/>
                 <TextBlock x:Name="ExportCountTextBlock" Text="" FontSize="11" Foreground="#5B5E6B" VerticalAlignment="Center" Grid.Column="1"/>
             </Grid>
+        </Border>
+
+        <!-- Loading Overlay -->
+        <Border x:Name="LoadingOverlay" Grid.RowSpan="2" Background="#CC000000" IsVisible="False" ZIndex="1000">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16">
+                <!-- Simple Loading Spinner using a rotating path -->
+                <Path Data="M12,4V2A10,10 0 0,0 2,12H4A8,8 0 0,1 12,4Z" Fill="#8B5CF6" Width="48" Height="48" Stretch="Uniform" HorizontalAlignment="Center">
+                    <Path.RenderTransform>
+                        <RotateTransform Angle="0"/>
+                    </Path.RenderTransform>
+                    <Path.Styles>
+                        <Style Selector="Path">
+                            <Style.Animations>
+                                <Animation Duration="0:0:1" IterationCount="INFINITE">
+                                    <KeyFrame Cue="0%">
+                                        <Setter Property="RotateTransform.Angle" Value="0" />
+                                    </KeyFrame>
+                                    <KeyFrame Cue="100%">
+                                        <Setter Property="RotateTransform.Angle" Value="360" />
+                                    </KeyFrame>
+                                </Animation>
+                            </Style.Animations>
+                        </Style>
+                    </Path.Styles>
+                </Path>
+                <TextBlock x:Name="LoadingOverlayText" Text="Обработка файлов..." FontSize="16" FontWeight="Medium" Foreground="#FFFFFF" HorizontalAlignment="Center"/>
+            </StackPanel>
         </Border>
     </Grid>
 </Window>

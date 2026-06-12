@@ -21,8 +21,10 @@ namespace LocKit.App
         private string _translation = string.Empty;
 
         public int Id { get; set; }
+        public int Index { get; set; }
         public string Key { get; set; } = string.Empty;
         public string Original { get; set; } = string.Empty;
+        public string Character { get; set; } = string.Empty;
 
         public string Translation
         {
@@ -54,6 +56,7 @@ namespace LocKit.App
         private readonly LlmService _llmService = new();
         private ObservableCollection<TranslationRow> _translationItems = new();
         private ObservableCollection<FileItemViewModel> _fileItems = new();
+        private ObservableCollection<FileNodeViewModel> _rootNodes = new();
         private Dictionary<string, bool> _fileCheckedSnapshot = new();
         private bool _isAiOpen = true;
         private int _customColumnCounter = 1;
@@ -98,6 +101,8 @@ namespace LocKit.App
             LoadLlmSettings();
 
             InitializeGridContextMenu();
+
+            UpdateRecentProjectsList();
         }
 
         private void InitializeGlobalDatabase()
@@ -120,7 +125,9 @@ namespace LocKit.App
             var files = _dbService.GetFiles();
             var items = files.Select(f => new FileItemViewModel { Name = f, IsChecked = true }).ToList();
             _fileItems = new ObservableCollection<FileItemViewModel>(items);
-            FilesListBox.ItemsSource = _fileItems;
+
+            BuildFileTree();
+            FilesTreeView.ItemsSource = _rootNodes;
 
             _fileCheckedSnapshot = files.ToDictionary(f => f, f => true);
 
@@ -128,7 +135,124 @@ namespace LocKit.App
 
             if (_fileItems.Count > 0)
             {
-                FilesListBox.SelectedIndex = 0;
+                WelcomeOverlay.IsVisible = false;
+                MainLayoutTransform.IsVisible = true;
+                SelectFirstFileNode();
+            }
+            else
+            {
+                WelcomeOverlay.IsVisible = true;
+                MainLayoutTransform.IsVisible = false;
+            }
+        }
+
+        private void BuildFileTree()
+        {
+            _rootNodes.Clear();
+            var folderCache = new Dictionary<string, FileNodeViewModel>();
+
+            foreach (var item in _fileItems)
+            {
+                string[] parts = item.Name.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
+                FileNodeViewModel? currentParent = null;
+                string currentPath = "";
+
+                for (int i = 0; i < parts.Length - 1; i++)
+                {
+                    currentPath = string.IsNullOrEmpty(currentPath) ? parts[i] : Path.Combine(currentPath, parts[i]);
+                    if (!folderCache.TryGetValue(currentPath, out var folderNode))
+                    {
+                        folderNode = new FileNodeViewModel
+                        {
+                            Name = parts[i],
+                            RelativePath = currentPath,
+                            IsFile = false,
+                            Parent = currentParent
+                        };
+                        folderCache[currentPath] = folderNode;
+                        if (currentParent == null)
+                            _rootNodes.Add(folderNode);
+                        else
+                            currentParent.Children.Add(folderNode);
+                    }
+                    currentParent = folderNode;
+                }
+
+                var fileNode = new FileNodeViewModel
+                {
+                    Name = parts.Last(),
+                    RelativePath = item.Name,
+                    IsFile = true,
+                    FileItem = item,
+                    Parent = currentParent
+                };
+
+                item.PropertyChanged += (s, e) =>
+                {
+                    if (e.PropertyName == nameof(FileItemViewModel.IsChecked))
+                    {
+                        fileNode.OnPropertyChanged(nameof(FileNodeViewModel.IsChecked));
+                        fileNode.Parent?.UpdateCheckState();
+                    }
+                    else if (e.PropertyName == nameof(FileItemViewModel.ProgressText))
+                    {
+                        fileNode.OnPropertyChanged(nameof(FileNodeViewModel.ProgressText));
+                    }
+                };
+
+                if (currentParent == null)
+                    _rootNodes.Add(fileNode);
+                else
+                    currentParent.Children.Add(fileNode);
+            }
+        }
+
+        private void SelectFirstFileNode()
+        {
+            if (_rootNodes.Count == 0) return;
+            var firstFile = FindFirstFileNode(_rootNodes);
+            if (firstFile != null)
+            {
+                FilesTreeView.SelectedItem = firstFile;
+            }
+        }
+
+        private FileNodeViewModel? FindFirstFileNode(IEnumerable<FileNodeViewModel> nodes)
+        {
+            foreach (var node in nodes)
+            {
+                if (node.IsFile) return node;
+                var found = FindFirstFileNode(node.Children);
+                if (found != null) return found;
+            }
+            return null;
+        }
+
+        private void RemoveFile_Click(object? sender, RoutedEventArgs e)
+        {
+            if (FilesTreeView.SelectedItem is FileNodeViewModel node && node.IsFile && node.FileItem != null)
+            {
+                string fileName = node.FileItem.Name;
+                
+                _dbService.DeleteFile(fileName);
+                
+                _fileItems.Remove(node.FileItem);
+                
+                if (BreadcrumbTextBlock != null && BreadcrumbTextBlock.Text.EndsWith(fileName.Replace('\\', '/')))
+                {
+                    _translationItems.Clear();
+                    TranslationGrid.ItemsSource = null;
+                    BreadcrumbTextBlock.Text = "Select a file...";
+                }
+
+                SetStatus($"Removed file '{fileName}' from project.");
+                
+                BuildFileTree();
+                UpdateFilesProgress();
+            }
+            else
+            {
+                SetStatus("Please select a file to remove.");
             }
         }
 
@@ -188,29 +312,71 @@ namespace LocKit.App
                 ToggleAiPanel();
                 e.Handled = true;
             }
-            // Ctrl + S: Save file shortcut
             else if (e.Key == Key.S && e.KeyModifiers == KeyModifiers.Control)
             {
                 SaveActiveFile();
                 e.Handled = true;
             }
-            // Ctrl + N: New Project
+            else if (e.Key == Key.T && e.KeyModifiers == KeyModifiers.Control)
+            {
+                _ = TranslateActiveRowWithAiAsync();
+                e.Handled = true;
+            }
             else if (e.Key == Key.N && e.KeyModifiers == KeyModifiers.Control)
             {
                 _ = CreateNewProjectAsync();
                 e.Handled = true;
             }
-            // Ctrl + O: Open Project
             else if (e.Key == Key.O && e.KeyModifiers == KeyModifiers.Control)
             {
                 _ = OpenExistingProjectAsync();
                 e.Handled = true;
             }
-            // Ctrl + I: Import Folder
-            else if (e.Key == Key.I && e.KeyModifiers == KeyModifiers.Control)
+            else if ((e.Key == Key.Add || e.Key == Key.OemPlus) && e.KeyModifiers == KeyModifiers.Control)
             {
-                _ = OpenGameFolderAsync();
+                ZoomIn();
                 e.Handled = true;
+            }
+            else if ((e.Key == Key.Subtract || e.Key == Key.OemMinus) && e.KeyModifiers == KeyModifiers.Control)
+            {
+                ZoomOut();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.D0 && e.KeyModifiers == KeyModifiers.Control)
+            {
+                ResetZoom();
+                e.Handled = true;
+            }
+        }
+
+        private double _currentZoom = 1.0;
+        private void ZoomIn()
+        {
+            _currentZoom = Math.Min(_currentZoom + 0.1, 3.0);
+            ApplyZoom();
+        }
+
+        private void ZoomOut()
+        {
+            _currentZoom = Math.Max(_currentZoom - 0.1, 0.5);
+            ApplyZoom();
+        }
+
+        private void ResetZoom()
+        {
+            _currentZoom = 1.0;
+            ApplyZoom();
+        }
+
+        private void ApplyZoom()
+        {
+            if (this.FindControl<LayoutTransformControl>("MainLayoutTransform") is LayoutTransformControl ltc)
+            {
+                if (ltc.LayoutTransform is ScaleTransform st)
+                {
+                    st.ScaleX = _currentZoom;
+                    st.ScaleY = _currentZoom;
+                }
             }
         }
 
@@ -235,7 +401,7 @@ namespace LocKit.App
 
         private void SaveActiveFile()
         {
-            var selectedFile = (FilesListBox.SelectedItem as FileItemViewModel)?.Name;
+            var selectedFile = (FilesTreeView.SelectedItem as FileNodeViewModel)?.FileItem?.Name;
             if (string.IsNullOrEmpty(selectedFile)) return;
 
             foreach (var item in _translationItems)
@@ -276,50 +442,79 @@ namespace LocKit.App
             // Save game folder path to current project settings
             _dbService.SaveSetting("game_folder_path", folderPath);
 
+            ShowLoading(true);
             await ImportGameFolderFilesAsync(folderPath);
+            ShowLoading(false);
         }
 
         private async Task ImportGameFolderFilesAsync(string folderPath)
         {
-            // Search for and handle .rpyc files first
-            string[] rpycFiles = Directory.GetFiles(folderPath, "*.rpyc", SearchOption.AllDirectories);
-            if (rpycFiles.Length > 0)
+            string gameRoot = Directory.GetParent(folderPath)?.FullName ?? folderPath;
+            string tlFolder = Path.Combine(folderPath, "tl", _dbService.GetSetting("default_target_language", "russian"));
+
+            SetStatus("Searching for Ren'Py game executable to generate translation templates...");
+            var exeFiles = Directory.GetFiles(gameRoot, "*.exe")
+                .Where(f => !f.Contains("unins", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (exeFiles.Count > 0)
             {
-                SetStatus($"Found {rpycFiles.Length} compiled .rpyc file(s). Running decompiler...");
-                bool decompileSuccess = await _decompilerService.DecompileFolderIfNeededAsync(folderPath, msg => SetStatus(msg));
-                if (!decompileSuccess)
+                string gameExe = exeFiles[0];
+                string targetLang = _dbService.GetSetting("default_target_language", "russian");
+                
+                bool genSuccess = await _decompilerService.DecompileAndGenerateAsync(gameExe, gameRoot, targetLang, msg => SetStatus(msg));
+                
+                if (genSuccess)
                 {
-                    SetStatus("Failed to decompile all .rpyc files. Some dialogue may be missing. Proceeding to parse available .rpy files...");
+                    SetStatus($"Successfully generated/updated {targetLang} templates.");
+                }
+                else
+                {
+                    SetStatus("Failed to generate templates via executable. Will try parsing existing files.");
                 }
             }
 
-            string[] rpyFiles = Directory.GetFiles(folderPath, "*.rpy", SearchOption.AllDirectories);
+            string[] rpyFiles;
+            if (Directory.Exists(tlFolder))
+            {
+                rpyFiles = Directory.GetFiles(tlFolder, "*.rpy", SearchOption.AllDirectories);
+            }
+            else
+            {
+                rpyFiles = Directory.GetFiles(folderPath, "*.rpy", SearchOption.AllDirectories);
+            }
 
             if (rpyFiles.Length == 0)
             {
-                SetStatus("No .rpy source files found in selected folder.");
+                SetStatus("No .rpy source files found to import.");
                 return;
             }
 
             int totalImported = 0;
+            var importedList = new System.Collections.Generic.List<FileItemViewModel>();
 
             try
             {
-                _fileItems.Clear();
-
-                foreach (string filePath in rpyFiles)
+                await Task.Run(() =>
                 {
-                    string fileName = Path.GetFileName(filePath);
-                    var parsed = NativeParser.ParseRpyFile(filePath);
-
-                    _dbService.ImportRpyFile(fileName, parsed);
-
-                    if (!_fileItems.Any(f => f.Name == fileName))
+                    foreach (string filePath in rpyFiles)
                     {
-                        _fileItems.Add(new FileItemViewModel { Name = fileName, IsChecked = true });
-                    }
+                        string fileName = Path.GetFileName(filePath);
+                        var parsed = NativeParser.ParseRpyFile(filePath);
 
-                    totalImported += parsed.Count;
+                        _dbService.ImportRpyFile(fileName, parsed);
+
+                        string displayPath = filePath.Replace(folderPath, "").TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                        importedList.Add(new FileItemViewModel { Name = displayPath, IsChecked = true });
+
+                        totalImported += parsed.Count;
+                    }
+                });
+
+                _fileItems.Clear();
+                foreach (var item in importedList)
+                {
+                    _fileItems.Add(item);
                 }
             }
             catch (Exception ex)
@@ -332,9 +527,14 @@ namespace LocKit.App
 
             UpdateFilesProgress();
 
+            BuildFileTree();
+            FilesTreeView.ItemsSource = _rootNodes;
+
             if (_fileItems.Count > 0)
             {
-                FilesListBox.SelectedItem = _fileItems[0];
+                WelcomeOverlay.IsVisible = false;
+                MainLayoutTransform.IsVisible = true;
+                SelectFirstFileNode();
             }
 
             if (totalImported > 0)
@@ -391,7 +591,9 @@ namespace LocKit.App
                 targetLang = "russian";
             }
 
+            ShowLoading(true);
             await CreateProjectAsync(projectPath, gameFolder, targetLang);
+            ShowLoading(false);
         }
 
         private async void OpenProject_Click(object? sender, RoutedEventArgs e)
@@ -420,7 +622,9 @@ namespace LocKit.App
             if (files.Count == 0) return;
             string projectPath = files[0].Path.LocalPath;
 
+            ShowLoading(true);
             await LoadProjectAsync(projectPath);
+            ShowLoading(false);
         }
 
         private async Task CreateProjectAsync(string projectPath, string gameFolder, string targetLang)
@@ -428,6 +632,7 @@ namespace LocKit.App
             try
             {
                 SaveActiveFile();
+                ClearWorkspace();
 
                 if (File.Exists(projectPath))
                 {
@@ -441,6 +646,7 @@ namespace LocKit.App
                 _dbService.SaveSetting("default_target_language", targetLang);
 
                 _dbService.SaveSetting("last_project_path", projectPath, isGlobal: true);
+                AddToRecentProjects(projectPath);
 
                 _lastGameFolder = gameFolder;
                 Title = $"LocKit - {Path.GetFileName(projectPath)}";
@@ -463,6 +669,7 @@ namespace LocKit.App
             try
             {
                 SaveActiveFile();
+                ClearWorkspace();
 
                 _dbService.SetDatabasePath(projectPath);
                 _dbService.InitializeDatabase(seedDemo: false);
@@ -471,6 +678,7 @@ namespace LocKit.App
                 string targetLang = _dbService.GetSetting("default_target_language", "russian");
 
                 _dbService.SaveSetting("last_project_path", projectPath, isGlobal: true);
+                AddToRecentProjects(projectPath);
 
                 SetupDataFromDb();
 
@@ -491,7 +699,9 @@ namespace LocKit.App
 
         private async void Export_Click(object sender, RoutedEventArgs e)
         {
+            ShowLoading(true);
             await ExportTlFolderAsync();
+            ShowLoading(false);
         }
 
         private Task ExportTlFolderAsync()
@@ -583,12 +793,16 @@ namespace LocKit.App
             VerifyRustFFI();
         }
 
-        private void FilesListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private void FilesTreeView_SelectedItemChanged(object? sender, SelectionChangedEventArgs e)
         {
-            if (FilesListBox.SelectedItem is FileItemViewModel fileItem)
+            if (FilesTreeView.SelectedItem is FileNodeViewModel node && node.IsFile && node.FileItem != null)
             {
-                string selectedFile = fileItem.Name;
+                string selectedFile = node.FileItem.Name;
                 var units = _dbService.GetTranslationUnits(selectedFile);
+                for (int i = 0; i < units.Count; i++)
+                {
+                    units[i].Index = i + 1;
+                }
                 _translationItems = new ObservableCollection<TranslationRow>(units);
 
                 RestoreDynamicColumns(selectedFile);
@@ -663,11 +877,11 @@ namespace LocKit.App
                 OriginalContextTextBox.Text = selectedRow.Original;
                 TranslationContextTextBox.Text = selectedRow.Translation;
 
-                if (PropertyRowIdText != null) PropertyRowIdText.Text = selectedRow.Id.ToString();
+                if (PropertyRowIdText != null) PropertyRowIdText.Text = selectedRow.Index.ToString();
                 if (PropertyKeyText != null) PropertyKeyText.Text = selectedRow.Key;
                 if (PropertyFileText != null)
                 {
-                    var selectedFile = (FilesListBox.SelectedItem as FileItemViewModel)?.Name ?? "unknown";
+                    var selectedFile = (FilesTreeView.SelectedItem as FileNodeViewModel)?.FileItem?.Name ?? "unknown";
                     PropertyFileText.Text = selectedFile;
                 }
             }
@@ -742,7 +956,7 @@ namespace LocKit.App
             string systemPrompt = "You are an expert game localization assistant for Ren'Py. Help the user refine their translations, verify context, and ensure consistency.";
             if (_selectedRow != null)
             {
-                string activeFile = (FilesListBox.SelectedItem as FileItemViewModel)?.Name ?? "unknown";
+                string activeFile = (FilesTreeView.SelectedItem as FileNodeViewModel)?.FileItem?.Name ?? "unknown";
                 systemPrompt += $"\n\nContext of the current string being translated:\n- File: {activeFile}\n- Key/ID: {_selectedRow.Key}\n- Original Text: \"{_selectedRow.Original}\"\n- Current Translation: \"{_selectedRow.Translation}\"\n\nPlease provide help, suggestions, or answer questions considering this translation context.";
             }
 
@@ -1012,9 +1226,27 @@ namespace LocKit.App
             var newItem = new FileItemViewModel { Name = fileName, IsChecked = true };
             _fileItems.Add(newItem);
             _fileCheckedSnapshot[fileName] = true;
-            FilesListBox.SelectedItem = newItem;
+
+            BuildFileTree();
+            FilesTreeView.ItemsSource = _rootNodes;
+            var node = FindFileNode(_rootNodes, fileName);
+            if (node != null)
+            {
+                FilesTreeView.SelectedItem = node;
+            }
 
             SetStatus($"Created new empty translation table: {fileName}");
+        }
+
+        private FileNodeViewModel? FindFileNode(IEnumerable<FileNodeViewModel> nodes, string relativePath)
+        {
+            foreach (var node in nodes)
+            {
+                if (node.IsFile && node.FileItem?.Name == relativePath) return node;
+                var found = FindFileNode(node.Children, relativePath);
+                if (found != null) return found;
+            }
+            return null;
         }
 
         private void AddCustomColumn(string headerName)
@@ -1054,10 +1286,123 @@ namespace LocKit.App
             SetStatus($"Added new custom column '{headerName}'. You can now edit notes in each row. Click Save (Ctrl+S) to persist it.");
         }
 
-        private void SetStatus(string message)
+        public void SetStatus(string message)
         {
-            StatusTextBlock.Text = message;
-            System.Diagnostics.Debug.WriteLine(message);
+            if (!Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+            {
+                Avalonia.Threading.Dispatcher.UIThread.Post(() => SetStatus(message));
+                return;
+            }
+
+            if (StatusTextBlock != null)
+            {
+                StatusTextBlock.Text = message;
+            }
+
+            if (LoadingOverlayText != null)
+            {
+                LoadingOverlayText.Text = message;
+            }
+        }
+
+        public void ShowLoading(bool show)
+        {
+            if (!Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+            {
+                Avalonia.Threading.Dispatcher.UIThread.Post(() => ShowLoading(show));
+                return;
+            }
+
+            if (LoadingOverlay != null)
+            {
+                LoadingOverlay.IsVisible = show;
+            }
+        }
+
+        private void ClearWorkspace()
+        {
+            if (!Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+            {
+                Avalonia.Threading.Dispatcher.UIThread.Post(ClearWorkspace);
+                return;
+            }
+
+            _translationItems?.Clear();
+            _fileItems?.Clear();
+            _rootNodes?.Clear();
+            _fileCheckedSnapshot?.Clear();
+            _selectedRow = null;
+
+            if (TranslationGrid != null) TranslationGrid.ItemsSource = null;
+            if (FilesTreeView != null) FilesTreeView.ItemsSource = null;
+            if (BreadcrumbTextBlock != null) BreadcrumbTextBlock.Text = "Select a file...";
+            if (OriginalContextTextBox != null) OriginalContextTextBox.Text = string.Empty;
+            if (TranslationContextTextBox != null) TranslationContextTextBox.Text = string.Empty;
+            if (PropertyRowIdText != null) PropertyRowIdText.Text = "N/A";
+            if (PropertyKeyText != null) PropertyKeyText.Text = "N/A";
+            if (PropertyFileText != null) PropertyFileText.Text = "N/A";
+            if (GridProgressTextBlock != null) GridProgressTextBlock.Text = "0 / 0";
+        }
+
+        private void AddToRecentProjects(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return;
+            string recentsRaw = _dbService.GetSetting("recent_projects", "", isGlobal: true);
+            var paths = recentsRaw.Split('|', StringSplitOptions.RemoveEmptyEntries).ToList();
+            paths.Remove(path);
+            paths.Insert(0, path);
+            string updated = string.Join("|", paths.Take(5));
+            _dbService.SaveSetting("recent_projects", updated, isGlobal: true);
+            UpdateRecentProjectsList();
+        }
+
+        private void UpdateRecentProjectsList()
+        {
+            if (!Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+            {
+                Avalonia.Threading.Dispatcher.UIThread.Post(UpdateRecentProjectsList);
+                return;
+            }
+
+            if (RecentProjectsPanel == null) return;
+            RecentProjectsPanel.Children.Clear();
+
+            string recentsRaw = _dbService.GetSetting("recent_projects", "", isGlobal: true);
+            var paths = recentsRaw.Split('|', StringSplitOptions.RemoveEmptyEntries)
+                                  .Where(p => File.Exists(p))
+                                  .Distinct()
+                                  .Take(5)
+                                  .ToList();
+
+            if (paths.Count == 0)
+            {
+                RecentProjectsPanel.Children.Add(new TextBlock
+                {
+                    Text = "Нет недавно открытых проектов",
+                    FontSize = 12,
+                    Foreground = Avalonia.Media.Brushes.Gray
+                });
+                return;
+            }
+
+            foreach (var path in paths)
+            {
+                var btn = new Button
+                {
+                    Classes = { "toolbar-btn" },
+                    Content = Path.GetFileName(path),
+                    HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left,
+                    Margin = new Avalonia.Thickness(0, 0, 0, 4)
+                };
+                ToolTip.SetTip(btn, path);
+                btn.Click += async (s, e) =>
+                {
+                    ShowLoading(true);
+                    await LoadProjectAsync(path);
+                    ShowLoading(false);
+                };
+                RecentProjectsPanel.Children.Add(btn);
+            }
         }
 
         private void SavePreBulkSnapshot()
@@ -1072,6 +1417,11 @@ namespace LocKit.App
             {
                 item.IsChecked = true;
             }
+            foreach (var node in _rootNodes)
+            {
+                node.OnPropertyChanged(nameof(FileNodeViewModel.IsChecked));
+                node.UpdateCheckState();
+            }
             SetStatus("Selected all files.");
         }
 
@@ -1082,6 +1432,11 @@ namespace LocKit.App
             {
                 item.IsChecked = false;
             }
+            foreach (var node in _rootNodes)
+            {
+                node.OnPropertyChanged(nameof(FileNodeViewModel.IsChecked));
+                node.UpdateCheckState();
+            }
             SetStatus("Deselected all files.");
         }
 
@@ -1091,6 +1446,11 @@ namespace LocKit.App
             foreach (var item in _fileItems)
             {
                 item.IsChecked = !item.IsChecked;
+            }
+            foreach (var node in _rootNodes)
+            {
+                node.OnPropertyChanged(nameof(FileNodeViewModel.IsChecked));
+                node.UpdateCheckState();
             }
             SetStatus("Inverted file selection.");
         }
@@ -1103,6 +1463,11 @@ namespace LocKit.App
                 {
                     item.IsChecked = val;
                 }
+            }
+            foreach (var node in _rootNodes)
+            {
+                node.OnPropertyChanged(nameof(FileNodeViewModel.IsChecked));
+                node.UpdateCheckState();
             }
             SetStatus("Restored file selection states.");
         }
@@ -1198,6 +1563,67 @@ namespace LocKit.App
             UpdateFilesProgress();
         }
 
+        private async void BatchTranslateAi_Click(object? sender, RoutedEventArgs e)
+        {
+            if (_translationItems == null || _translationItems.Count == 0)
+            {
+                SetStatus("No strings to translate in this file.");
+                return;
+            }
+
+            var untranslated = _translationItems.Where(row => string.IsNullOrEmpty(row.Translation)).ToList();
+            if (untranslated.Count == 0)
+            {
+                SetStatus("All strings in this file are already translated!");
+                return;
+            }
+
+            string baseUrl = _dbService.GetSetting("llm_base_url", "https://api.openai.com/v1", isGlobal: true);
+            string apiKey = _dbService.GetSetting("llm_api_key", "", isGlobal: true);
+            string model = _dbService.GetSetting("llm_model", "gpt-4o", isGlobal: true);
+
+            if (string.IsNullOrWhiteSpace(apiKey))
+            {
+                SetStatus("Error: LLM API Key is not configured. Please fill in the LLM Settings in the AI panel.");
+                return;
+            }
+
+            string targetLang = _dbService.GetSetting("default_target_language", "russian");
+            SetStatus($"Batch translating {untranslated.Count} strings via AI ({model})...");
+
+            string systemPrompt = $"You are a professional game translator. Translate the given JSON array of texts from English to {targetLang}. " +
+                                  "Keep all format tags, variables, and punctuation intact. " +
+                                  "Return ONLY a JSON object matching the schema: {\"translations\": [{\"id\": int, \"translation\": \"string\"}]}";
+
+            int batchSize = 15;
+            int totalProcessed = 0;
+
+            for (int i = 0; i < untranslated.Count; i += batchSize)
+            {
+                var batch = untranslated.Skip(i).Take(batchSize).ToList();
+                var batchItems = batch.ToDictionary(row => row.Id, row => row.Original);
+
+                var translations = await _llmService.TranslateBatchAsync(baseUrl, apiKey, model, systemPrompt, batchItems);
+
+                foreach (var item in batch)
+                {
+                    if (translations.TryGetValue(item.Id, out string? translation) && !string.IsNullOrWhiteSpace(translation))
+                    {
+                        item.Translation = translation;
+                        _dbService.UpdateTranslation(item.Id, translation);
+                        totalProcessed++;
+                    }
+                }
+
+                SetStatus($"Translated {totalProcessed} / {untranslated.Count} strings...");
+                await Task.Delay(100);
+            }
+
+            SetStatus($"Batch AI translation complete! Translated {totalProcessed} strings.");
+            ApplyTableFilter();
+            UpdateFilesProgress();
+        }
+
         private async Task TranslateActiveRowWithGoogleFreeAsync()
         {
             if (_selectedRow == null) return;
@@ -1264,5 +1690,66 @@ namespace LocKit.App
 
         public event PropertyChangedEventHandler? PropertyChanged;
         protected void OnPropertyChanged(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
+
+    public class FileNodeViewModel : INotifyPropertyChanged
+    {
+        private bool? _isChecked = true;
+        private string _name = string.Empty;
+
+        public string Name
+        {
+            get => _name;
+            set { _name = value; OnPropertyChanged(nameof(Name)); }
+        }
+
+        public string RelativePath { get; set; } = string.Empty;
+        public bool IsFile { get; set; } = false;
+        public FileItemViewModel? FileItem { get; set; }
+        public FileNodeViewModel? Parent { get; set; }
+        public ObservableCollection<FileNodeViewModel> Children { get; set; } = new();
+
+        public string IconText => IsFile ? "📄" : "📁";
+
+        public bool? IsChecked
+        {
+            get
+            {
+                if (IsFile && FileItem != null) return FileItem.IsChecked;
+                return _isChecked;
+            }
+            set
+            {
+                if (IsFile && FileItem != null)
+                {
+                    FileItem.IsChecked = value ?? false;
+                }
+                else
+                {
+                    _isChecked = value;
+                    if (value.HasValue)
+                    {
+                        foreach (var c in Children) c.IsChecked = value.Value;
+                    }
+                }
+                OnPropertyChanged(nameof(IsChecked));
+                Parent?.UpdateCheckState();
+            }
+        }
+
+        public string ProgressText => IsFile && FileItem != null ? FileItem.ProgressText : "";
+
+        public void UpdateCheckState()
+        {
+            if (IsFile) return;
+            bool allChecked = Children.All(c => c.IsChecked == true);
+            bool allUnchecked = Children.All(c => c.IsChecked == false);
+            _isChecked = allChecked ? true : (allUnchecked ? false : (bool?)null);
+            OnPropertyChanged(nameof(IsChecked));
+            Parent?.UpdateCheckState();
+        }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+        public void OnPropertyChanged(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }
 }

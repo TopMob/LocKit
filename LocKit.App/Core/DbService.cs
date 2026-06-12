@@ -24,13 +24,11 @@ namespace LocKit.App.Core
             using var connection = new SqliteConnection(ConnectionString);
             connection.Open();
 
-            // Enable Foreign Keys
             using (var pragmaCmd = new SqliteCommand("PRAGMA foreign_keys = ON;", connection))
             {
                 pragmaCmd.ExecuteNonQuery();
             }
 
-            // Create tables
             string createTablesSql = @"
                 CREATE TABLE IF NOT EXISTS files (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -42,6 +40,7 @@ namespace LocKit.App.Core
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     file_id INTEGER NOT NULL,
                     key TEXT NOT NULL,
+                    character TEXT,
                     source TEXT NOT NULL,
                     target TEXT,
                     status TEXT NOT NULL,
@@ -67,7 +66,13 @@ namespace LocKit.App.Core
                 cmd.ExecuteNonQuery();
             }
 
-            // Seed demo data if database is empty and requested
+            try
+            {
+                using var alterCmd = new SqliteCommand("ALTER TABLE translation_units ADD COLUMN character TEXT;", connection);
+                alterCmd.ExecuteNonQuery();
+            }
+            catch { }
+
             if (seedDemo)
             {
                 SeedDemoData(connection);
@@ -180,9 +185,8 @@ namespace LocKit.App.Core
             using var connection = new SqliteConnection(ConnectionString);
             connection.Open();
 
-            // 1. Load translation units
             string selectUnitsSql = @"
-                SELECT u.id, u.key, u.source, u.target 
+                SELECT u.id, u.key, u.source, u.target, u.character 
                 FROM translation_units u
                 JOIN files f ON u.file_id = f.id
                 WHERE f.name = @fileName
@@ -200,12 +204,12 @@ namespace LocKit.App.Core
                     Id = reader.GetInt32(0),
                     Key = reader.GetString(1),
                     Original = reader.GetString(2),
-                    Translation = reader.IsDBNull(3) ? string.Empty : reader.GetString(3)
+                    Translation = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+                    Character = reader.IsDBNull(4) ? string.Empty : reader.GetString(4)
                 };
                 result.Add(row);
             }
 
-            // 2. Load custom meta for loaded units to populate CustomColumns dictionary
             if (result.Count == 0) return result;
 
             var idsList = result.Select(r => r.Id).ToList();
@@ -303,7 +307,6 @@ namespace LocKit.App.Core
             connection.Open();
             using var tx = connection.BeginTransaction();
 
-            // Upsert file record
             long fileId;
             using (var upsertFileCmd = new SqliteCommand(
                 "INSERT INTO files (name, status) VALUES (@name, 'imported') ON CONFLICT(name) DO UPDATE SET status='imported'; SELECT id FROM files WHERE name = @name;",
@@ -313,22 +316,25 @@ namespace LocKit.App.Core
                 fileId = (long)(upsertFileCmd.ExecuteScalar() ?? 0L);
             }
 
-            // Delete existing units for this file so re-import is clean
             using (var deleteCmd = new SqliteCommand("DELETE FROM translation_units WHERE file_id = @file_id;", connection, tx))
             {
                 deleteCmd.Parameters.AddWithValue("@file_id", fileId);
                 deleteCmd.ExecuteNonQuery();
             }
 
-            // Bulk insert new units
             foreach (var line in lines)
             {
+                string target = string.IsNullOrEmpty(line.Translation) ? "" : line.Translation;
+                string status = string.IsNullOrEmpty(target) ? "pending" : "translated";
                 using var insertCmd = new SqliteCommand(
-                    "INSERT INTO translation_units (file_id, key, source, target, status) VALUES (@file_id, @key, @source, '', 'pending');",
+                    "INSERT INTO translation_units (file_id, key, character, source, target, status) VALUES (@file_id, @key, @character, @source, @target, @status);",
                     connection, tx);
                 insertCmd.Parameters.AddWithValue("@file_id", fileId);
                 insertCmd.Parameters.AddWithValue("@key", line.Key);
+                insertCmd.Parameters.AddWithValue("@character", line.Character ?? "");
                 insertCmd.Parameters.AddWithValue("@source", line.Source);
+                insertCmd.Parameters.AddWithValue("@target", target);
+                insertCmd.Parameters.AddWithValue("@status", status);
                 insertCmd.ExecuteNonQuery();
             }
 
@@ -342,7 +348,7 @@ namespace LocKit.App.Core
             connection.Open();
 
             string sql = @"
-                SELECT u.key, u.source, COALESCE(u.target, '') as target
+                SELECT u.key, u.source, COALESCE(u.target, '') as target, COALESCE(u.character, '') as character
                 FROM translation_units u
                 JOIN files f ON u.file_id = f.id
                 WHERE f.name = @fileName
@@ -358,7 +364,8 @@ namespace LocKit.App.Core
                 {
                     Key = reader.GetString(0),
                     Source = reader.GetString(1),
-                    Target = reader.GetString(2)
+                    Target = reader.GetString(2),
+                    Character = reader.GetString(3)
                 });
             }
             return result;
@@ -396,6 +403,21 @@ namespace LocKit.App.Core
             ", connection);
             cmd.Parameters.AddWithValue("@key", key);
             cmd.Parameters.AddWithValue("@value", value);
+            cmd.ExecuteNonQuery();
+        }
+
+        public void DeleteFile(string fileName)
+        {
+            using var connection = new SqliteConnection(ConnectionString);
+            connection.Open();
+
+            using (var pragmaCmd = new SqliteCommand("PRAGMA foreign_keys = ON;", connection))
+            {
+                pragmaCmd.ExecuteNonQuery();
+            }
+
+            using var cmd = new SqliteCommand("DELETE FROM files WHERE name = @name;", connection);
+            cmd.Parameters.AddWithValue("@name", fileName);
             cmd.ExecuteNonQuery();
         }
     }
