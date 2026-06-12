@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="LocKit.App.MainWindow"
         x:CompileBindings="False"
-        Title="LocKit Workspace"
+        Title=""
         Width="1200" Height="800"
         WindowStartupLocation="CenterScreen"
         ExtendClientAreaToDecorationsHint="True"
@@ -92,22 +92,9 @@
         </Style>
     </Window.Styles>
 
-    <Grid RowDefinitions="38, 48, *">
+    <Grid RowDefinitions="20, 48, *">
         <!-- Titlebar Drag Area -->
-        <Grid Grid.Row="0" Background="#0A0A0D" ColumnDefinitions="Auto, *, Auto">
-            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" Margin="16,8,0,0" VerticalAlignment="Center">
-                <Ellipse Width="8" Height="8" Fill="#C084FC"/>
-                <TextBlock Text="LocKit Studio — Translation Workspace" FontSize="11" Foreground="#5B5E6B" FontWeight="Medium" LetterSpacing="0.5"/>
-            </StackPanel>
-            
-            <!-- Quick diagnostic label in titlebar -->
-            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="16" Margin="0,8,16,0" VerticalAlignment="Center">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                    <TextBlock Text="Core Version:" FontSize="10" Foreground="#5B5E6B"/>
-                    <TextBlock x:Name="VersionText" Text="Loading..." FontSize="10" Foreground="#C084FC" FontWeight="Medium"/>
-                </StackPanel>
-            </StackPanel>
-        </Grid>
+        <Grid Grid.Row="0" Background="#0A0A0D" />
 
         <!-- Toolbar Panel -->
         <Border Grid.Row="1" Background="#0E0E14" BorderBrush="#1C1C24" BorderThickness="0,0,0,1" Padding="12,8">
@@ -238,7 +225,7 @@
 
             <!-- Right AI Chat Panel -->
             <Border Grid.Column="4" x:Name="AiChatPanel" Background="#0A0A0D" BorderBrush="#1C1C24" BorderThickness="1,0,0,0" Padding="16">
-                <Grid RowDefinitions="Auto, *, Auto">
+                <Grid RowDefinitions="Auto, Auto, *, Auto">
                     <!-- Header -->
                     <Grid Grid.Row="0" ColumnDefinitions="*, Auto" Margin="0,0,0,16">
                         <StackPanel Grid.Column="0" Spacing="2">
@@ -248,21 +235,40 @@
                         <Button Grid.Column="1" Content="✕" FontSize="10" Background="Transparent" BorderThickness="0" Foreground="#5B5E6B" Click="ToggleAiPanel_Click" VerticalAlignment="Center"/>
                     </Grid>
 
+                    <!-- LLM Settings Expander -->
+                    <Expander Grid.Row="1" Header="⚙️ LLM Settings" ExpandDirection="Down" Background="#14141A" BorderBrush="#1C1C24" Foreground="#A0A0AA" Margin="0,0,0,16" Padding="8">
+                        <StackPanel Spacing="8">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="Base URL" FontSize="11" Foreground="#888888"/>
+                                <TextBox x:Name="LlmBaseUrlTextBox" PlaceholderText="e.g. https://api.openai.com/v1" FontSize="11" Background="#0F0F14" BorderBrush="#252535" Height="28" Padding="6,2"/>
+                            </StackPanel>
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="API Key" FontSize="11" Foreground="#888888"/>
+                                <TextBox x:Name="LlmApiKeyTextBox" PasswordChar="*" PlaceholderText="sk-..." FontSize="11" Background="#0F0F14" BorderBrush="#252535" Height="28" Padding="6,2"/>
+                            </StackPanel>
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="Model" FontSize="11" Foreground="#888888"/>
+                                <TextBox x:Name="LlmModelTextBox" PlaceholderText="e.g. gpt-4o" FontSize="11" Background="#0F0F14" BorderBrush="#252535" Height="28" Padding="6,2"/>
+                            </StackPanel>
+                            <Button Content="Save Settings" Classes="toolbar-btn" HorizontalAlignment="Right" Click="SaveLlmSettings_Click" FontSize="11" Padding="8,4"/>
+                        </StackPanel>
+                    </Expander>
+
                     <!-- Scrollable Chat History -->
-                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,0,0,16">
+                    <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Margin="0,0,0,16">
                         <StackPanel x:Name="ChatHistoryPanel" Spacing="12">
                             <!-- Helper start message -->
                             <Border Background="#14141A" BorderBrush="#1F1F2B" BorderThickness="1" CornerRadius="3" Padding="10">
                                 <StackPanel Spacing="4">
-                                    <TextBlock Text="System Assistant" FontSize="11" Foreground="#F472B6" FontWeight="SemiBold"/>
-                                    <TextBlock Text="Welcome to LocKit AI Assistant! Select any string in the translation workspace. Press Ctrl+L or use the bottom box to query contextual translations, glossary compliance, or local idioms." FontSize="12" Foreground="#A0A0AA" TextWrapping="Wrap"/>
+                                    <TextBlock Text="Assistant" FontSize="11" Foreground="#F472B6" FontWeight="SemiBold"/>
+                                    <TextBlock Text="Select any string in the translation workspace. Press Ctrl+L or use the bottom box to query contextual translations, glossary compliance, or local idioms." FontSize="12" Foreground="#A0A0AA" TextWrapping="Wrap"/>
                                 </StackPanel>
                             </Border>
                         </StackPanel>
                     </ScrollViewer>
 
                     <!-- Bottom Input Panel -->
-                    <Grid Grid.Row="2" ColumnDefinitions="*, 8, Auto">
+                    <Grid Grid.Row="3" ColumnDefinitions="*, 8, Auto">
                         <TextBox Grid.Column="0" x:Name="AiInputTextBox" PlaceholderText="Ask AI..." FontSize="12" Height="34" VerticalAlignment="Center" Background="#13131A" BorderBrush="#252535" KeyDown="AiInputTextBox_KeyDown"/>
                         <Button Grid.Column="2" Content="Send" Classes="accent-btn" Height="34" Padding="12,0" VerticalAlignment="Center" Click="SendAiMessage_Click"/>
                     </Grid>

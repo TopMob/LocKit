@@ -45,6 +45,11 @@ namespace LocKit.App.Core
                     PRIMARY KEY(unit_id, meta_key),
                     FOREIGN KEY(unit_id) REFERENCES translation_units(id) ON DELETE CASCADE
                 );
+
+                CREATE TABLE IF NOT EXISTS settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT
+                );
             ";
 
             using (var cmd = new SqliteCommand(createTablesSql, connection))
@@ -319,6 +324,29 @@ namespace LocKit.App.Core
                 });
             }
             return result;
+        }
+
+        public string GetSetting(string key, string defaultValue = "")
+        {
+            using var connection = new SqliteConnection(ConnectionString);
+            connection.Open();
+            using var cmd = new SqliteCommand("SELECT value FROM settings WHERE key = @key;", connection);
+            cmd.Parameters.AddWithValue("@key", key);
+            var val = cmd.ExecuteScalar();
+            return val != null ? val.ToString() : defaultValue;
+        }
+
+        public void SaveSetting(string key, string value)
+        {
+            using var connection = new SqliteConnection(ConnectionString);
+            connection.Open();
+            using var cmd = new SqliteCommand(@"
+                INSERT INTO settings (key, value) VALUES (@key, @value)
+                ON CONFLICT(key) DO UPDATE SET value = @value;
+            ", connection);
+            cmd.Parameters.AddWithValue("@key", key);
+            cmd.Parameters.AddWithValue("@value", value);
+            cmd.ExecuteNonQuery();
         }
     }
 }

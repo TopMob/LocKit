@@ -50,6 +50,8 @@ namespace LocKit.App
     public partial class MainWindow : Window
     {
         private readonly DbService _dbService = new();
+        private readonly DecompilerService _decompilerService = new();
+        private readonly LlmService _llmService = new();
         private ObservableCollection<TranslationRow> _translationItems = new();
         private ObservableCollection<string> _fileItems = new();
         private bool _isAiOpen = true;
@@ -68,6 +70,8 @@ namespace LocKit.App
             
             // Auto-verify FFI connection at startup
             VerifyRustFFI();
+
+            LoadLlmSettings();
         }
 
         private void SetupDataFromDb()
@@ -88,12 +92,10 @@ namespace LocKit.App
             try
             {
                 string version = NativeParser.GetVersion();
-                VersionText.Text = version;
                 AddTelemetryLog($"[rust-ffi] verified link. Core version: {version}");
             }
             catch (Exception ex)
             {
-                VersionText.Text = "FFI Error";
                 AddTelemetryLog($"[rust-ffi] link failed: {ex.Message}");
             }
         }
@@ -193,12 +195,24 @@ namespace LocKit.App
 
             string folderPath = folders[0].Path.LocalPath;
             _lastGameFolder = folderPath;
-            string[] rpyFiles = Directory.GetFiles(folderPath, "*.rpy", SearchOption.AllDirectories);
+            
+            // Search for and handle .rpyc files first
             string[] rpycFiles = Directory.GetFiles(folderPath, "*.rpyc", SearchOption.AllDirectories);
-
-            if (rpyFiles.Length == 0 && rpycFiles.Length == 0)
+            if (rpycFiles.Length > 0)
             {
-                AddAiChatBubble($"No .rpy or .rpyc files found in selected folder.");
+                AddAiChatBubble($"Found {rpycFiles.Length} compiled .rpyc file(s). Running decompiler...");
+                bool decompileSuccess = await _decompilerService.DecompileFolderIfNeededAsync(folderPath, msg => AddAiChatBubble(msg));
+                if (!decompileSuccess)
+                {
+                    AddAiChatBubble("Failed to decompile all .rpyc files. Some dialogue may be missing. Proceeding to parse available .rpy files...");
+                }
+            }
+
+            string[] rpyFiles = Directory.GetFiles(folderPath, "*.rpy", SearchOption.AllDirectories);
+
+            if (rpyFiles.Length == 0)
+            {
+                AddAiChatBubble($"No .rpy source files found in selected folder.");
                 return;
             }
 
@@ -471,7 +485,7 @@ namespace LocKit.App
             }
         }
 
-        private void ProcessAiInput()
+        private async void ProcessAiInput()
         {
             string prompt = AiInputTextBox.Text ?? string.Empty;
             if (string.IsNullOrWhiteSpace(prompt)) return;
@@ -479,14 +493,43 @@ namespace LocKit.App
             AiInputTextBox.Text = string.Empty;
             AddUserChatBubble(prompt);
 
-            string contextInfo = "";
-            if (_selectedRow != null)
+            string baseUrl = _dbService.GetSetting("llm_base_url", "https://api.openai.com/v1");
+            string apiKey = _dbService.GetSetting("llm_api_key", "");
+            string model = _dbService.GetSetting("llm_model", "gpt-4o");
+
+            if (string.IsNullOrWhiteSpace(apiKey))
             {
-                contextInfo = $"\nActive String: '{_selectedRow.Original}'\nTranslation: '{_selectedRow.Translation}'";
+                AddAiChatBubble("Error: LLM API Key is not configured. Please fill in the LLM Settings in the AI panel above to start using the AI Assistant.");
+                return;
             }
 
-            string reply = $"Analyzing context... {contextInfo}\nSuggested translation refinements:\n1. Check formatting codes\n2. Align with game glossary\n3. Tone is conversational.";
-            AddAiChatBubble(reply);
+            string systemPrompt = "You are an expert game localization assistant for Ren'Py. Help the user refine their translations, verify context, and ensure consistency.";
+            if (_selectedRow != null)
+            {
+                string activeFile = FilesListBox.SelectedItem as string ?? "unknown";
+                systemPrompt += $"\n\nContext of the current string being translated:\n- File: {activeFile}\n- Key/ID: {_selectedRow.Key}\n- Original Text: \"{_selectedRow.Original}\"\n- Current Translation: \"{_selectedRow.Translation}\"\n\nPlease provide help, suggestions, or answer questions considering this translation context.";
+            }
+
+            var thinkingBubble = AddAiChatBubble("Thinking...");
+            string response = await _llmService.GetAiResponseAsync(baseUrl, apiKey, model, systemPrompt, prompt);
+            
+            ChatHistoryPanel.Children.Remove(thinkingBubble);
+            AddAiChatBubble(response);
+        }
+
+        private void LoadLlmSettings()
+        {
+            LlmBaseUrlTextBox.Text = _dbService.GetSetting("llm_base_url", "https://api.openai.com/v1");
+            LlmApiKeyTextBox.Text = _dbService.GetSetting("llm_api_key", "");
+            LlmModelTextBox.Text = _dbService.GetSetting("llm_model", "gpt-4o");
+        }
+
+        private void SaveLlmSettings_Click(object sender, RoutedEventArgs e)
+        {
+            _dbService.SaveSetting("llm_base_url", LlmBaseUrlTextBox.Text ?? string.Empty);
+            _dbService.SaveSetting("llm_api_key", LlmApiKeyTextBox.Text ?? string.Empty);
+            _dbService.SaveSetting("llm_model", LlmModelTextBox.Text ?? string.Empty);
+            AddAiChatBubble("LLM settings saved successfully!");
         }
 
         private void AddUserChatBubble(string message)
@@ -508,7 +551,7 @@ namespace LocKit.App
             ChatHistoryPanel.Children.Add(border);
         }
 
-        private void AddAiChatBubble(string message)
+        private Border AddAiChatBubble(string message)
         {
             var border = new Border
             {
@@ -525,6 +568,7 @@ namespace LocKit.App
             panel.Children.Add(new TextBlock { Text = message, FontSize = 12, Foreground = new SolidColorBrush(Color.Parse("#E2E8F0")), TextWrapping = TextWrapping.Wrap });
             border.Child = panel;
             ChatHistoryPanel.Children.Add(border);
+            return border;
         }
     }
 }
