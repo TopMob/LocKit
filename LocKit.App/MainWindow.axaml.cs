@@ -72,6 +72,8 @@ namespace LocKit.App
             VerifyRustFFI();
 
             LoadLlmSettings();
+
+            InitializeGridContextMenu();
         }
 
         private void SetupDataFromDb()
@@ -128,17 +130,17 @@ namespace LocKit.App
             _isAiOpen = !_isAiOpen;
             if (_isAiOpen)
             {
-                WorkspaceGrid.ColumnDefinitions[4].Width = new GridLength(300);
+                WorkspaceGrid.ColumnDefinitions[2].Width = new GridLength(300);
                 AiSplitter.IsVisible = true;
                 AiChatPanel.IsVisible = true;
-                AiToggleButton.Content = "Hide AI Chat";
+                ToolTip.SetTip(AiToggleButton, "Hide AI Chat (Ctrl+L)");
             }
             else
             {
-                WorkspaceGrid.ColumnDefinitions[4].Width = new GridLength(0);
+                WorkspaceGrid.ColumnDefinitions[2].Width = new GridLength(0);
                 AiSplitter.IsVisible = false;
                 AiChatPanel.IsVisible = false;
-                AiToggleButton.Content = "AI Chat (Ctrl+L)";
+                ToolTip.SetTip(AiToggleButton, "Show AI Chat (Ctrl+L)");
             }
         }
 
@@ -266,36 +268,17 @@ namespace LocKit.App
 
         private async Task ExportTlFolderAsync()
         {
-            if (_fileItems.Count == 0)
+            if (_fileItems.Count == 0 || string.IsNullOrEmpty(_lastGameFolder))
             {
-                AddAiChatBubble("No files loaded. Open a game folder first.");
-                return;
-            }
-
-            var topLevel = TopLevel.GetTopLevel(this);
-            if (topLevel == null) return;
-
-            // Ask user where to export (default: alongside game folder)
-            var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
-            {
-                Title = "Select output folder (tl/russian/ will be created inside)",
-                AllowMultiple = false
-            });
-
-            string outputBase = folders.Count > 0
-                ? folders[0].Path.LocalPath
-                : _lastGameFolder;
-
-            if (string.IsNullOrEmpty(outputBase))
-            {
-                AddAiChatBubble("Export cancelled: no output folder selected.");
+                AddAiChatBubble("No game folder loaded. Open a game folder first.");
                 return;
             }
 
             // Save current file before exporting
             SaveActiveFile();
 
-            string tlRoot = Path.Combine(outputBase, "tl", "russian");
+            string targetLanguage = _dbService.GetSetting("default_target_language", "russian");
+            string tlRoot = Path.Combine(_lastGameFolder, "tl", targetLanguage);
             int exportedFiles = 0;
             int exportedStrings = 0;
 
@@ -305,7 +288,7 @@ namespace LocKit.App
                 if (units.Count == 0) continue;
 
                 string outputFilePath = Path.Combine(tlRoot, fileName);
-                string? error = NativeParser.ExportTlFile(outputFilePath, units, "russian");
+                string? error = NativeParser.ExportTlFile(outputFilePath, units, targetLanguage);
 
                 if (error == null)
                 {
@@ -321,8 +304,8 @@ namespace LocKit.App
             if (exportedFiles > 0)
             {
                 AddAiChatBubble(
-                    $"Export complete. {exportedStrings} strings across {exportedFiles} file(s) written to:\n{tlRoot}\n\n" +
-                    $"To enable in Ren'Py, add to options.rpy:\n    define config.language = \"russian\"");
+                    $"Export complete! {exportedStrings} strings across {exportedFiles} file(s) written directly to:\n{tlRoot}\n\n" +
+                    $"To enable in Ren'Py, add to options.rpy:\n    define config.language = \"{targetLanguage}\"");
             }
         }
 
@@ -569,6 +552,188 @@ namespace LocKit.App
             border.Child = panel;
             ChatHistoryPanel.Children.Add(border);
             return border;
+        }
+
+        private void InitializeGridContextMenu()
+        {
+            var menu = new ContextMenu();
+            
+            menu.Opened += (s, e) =>
+            {
+                menu.ItemsSource = null;
+                var items = new List<MenuItem>();
+                
+                // 1. If a row is selected, show "Translate with AI (en -> ru)"
+                if (_selectedRow != null)
+                {
+                    string targetLang = _dbService.GetSetting("default_target_language", "russian");
+                    string targetShort = targetLang.Length >= 2 ? targetLang.Substring(0, 2).ToLower() : "ru";
+                    
+                    var translateItem = new MenuItem
+                    {
+                        Header = $"Translate with AI (en -> {targetShort})",
+                        Foreground = SolidColorBrush.Parse("#D8B4FE")
+                    };
+                    translateItem.Click += async (sender, args) =>
+                    {
+                        await TranslateActiveRowWithAiAsync();
+                    };
+                    items.Add(translateItem);
+                    items.Add(new MenuItem { Header = "-" });
+                }
+
+                // 2. Add checkbox for each column visibility
+                foreach (var col in TranslationGrid.Columns)
+                {
+                    var header = col.Header?.ToString() ?? "Column";
+                    var checkBox = new CheckBox
+                    {
+                        IsChecked = col.IsVisible,
+                        IsHitTestVisible = false,
+                        Margin = new Thickness(0, 0, 8, 0)
+                    };
+                    
+                    var item = new MenuItem
+                    {
+                        Header = header,
+                        Icon = checkBox
+                    };
+                    item.Click += (sender, args) =>
+                    {
+                        col.IsVisible = !col.IsVisible;
+                    };
+                    items.Add(item);
+                }
+                
+                items.Add(new MenuItem { Header = "-" });
+                
+                // 3. Option to Add Custom Column
+                var addColItem = new MenuItem { Header = "Add Custom Column..." };
+                addColItem.Click += async (sender, args) =>
+                {
+                    var prompt = new PromptWindow("Add Custom Column", "Enter column name:");
+                    await prompt.ShowDialog(this);
+                    if (!string.IsNullOrWhiteSpace(prompt.Result))
+                    {
+                        AddCustomColumn(prompt.Result);
+                    }
+                };
+                items.Add(addColItem);
+                
+                menu.ItemsSource = items;
+            };
+            
+            TranslationGrid.ContextMenu = menu;
+        }
+
+        private async Task TranslateActiveRowWithAiAsync()
+        {
+            if (_selectedRow == null) return;
+
+            string baseUrl = _dbService.GetSetting("llm_base_url", "https://api.openai.com/v1");
+            string apiKey = _dbService.GetSetting("llm_api_key", "");
+            string model = _dbService.GetSetting("llm_model", "gpt-4o");
+
+            if (string.IsNullOrWhiteSpace(apiKey))
+            {
+                AddAiChatBubble("Error: LLM API Key is not configured. Please fill in the LLM Settings in the AI panel to use AI translation.");
+                return;
+            }
+
+            string targetLang = _dbService.GetSetting("default_target_language", "russian");
+
+            string systemPrompt = $"You are a professional game translator. Translate the text from English to {targetLang}. " +
+                                  "Return ONLY the translated text, with no explanations, no notes, and no quotes unless they are part of the translation.";
+            
+            string originalText = _selectedRow.Original;
+
+            var thinking = AddAiChatBubble($"Translating string: \"{originalText}\"...");
+
+            string translation = await _llmService.GetAiResponseAsync(baseUrl, apiKey, model, systemPrompt, originalText);
+            
+            ChatHistoryPanel.Children.Remove(thinking);
+
+            if (!translation.StartsWith("Error") && !translation.StartsWith("Exception"))
+            {
+                translation = translation.Trim('\"', '\'');
+                
+                _selectedRow.Translation = translation;
+                _dbService.UpdateTranslation(_selectedRow.Id, translation);
+                
+                if (TranslationGrid.SelectedItem == _selectedRow)
+                {
+                    TranslationContextTextBox.Text = translation;
+                }
+
+                AddAiChatBubble($"AI translation successful: \"{translation}\"");
+            }
+            else
+            {
+                AddAiChatBubble($"AI translation failed: {translation}");
+            }
+        }
+
+        private async void CreateNewTable_Click(object? sender, RoutedEventArgs e)
+        {
+            var prompt = new PromptWindow("Create New Table", "Enter new table/file name (e.g. script_custom.rpy):");
+            await prompt.ShowDialog(this);
+            
+            string fileName = prompt.Result.Trim();
+            if (string.IsNullOrWhiteSpace(fileName)) return;
+
+            if (!fileName.EndsWith(".rpy", StringComparison.OrdinalIgnoreCase))
+            {
+                fileName += ".rpy";
+            }
+
+            if (_fileItems.Contains(fileName))
+            {
+                AddAiChatBubble($"Error: A table named '{fileName}' already exists.");
+                return;
+            }
+
+            _dbService.ImportRpyFile(fileName, new List<RpyDialogueLine>());
+            _fileItems.Add(fileName);
+            FilesListBox.SelectedItem = fileName;
+
+            AddAiChatBubble($"Created new empty translation table: {fileName}");
+        }
+
+        private void AddCustomColumn(string headerName)
+        {
+            if (string.IsNullOrWhiteSpace(headerName)) return;
+            string columnKey = headerName.Replace(" ", "_").ToLower();
+
+            foreach (var col in TranslationGrid.Columns)
+            {
+                if (col.Header?.ToString().Equals(headerName, StringComparison.OrdinalIgnoreCase) == true)
+                {
+                    AddAiChatBubble($"Error: Column '{headerName}' already exists.");
+                    return;
+                }
+            }
+
+            var dataGridCol = new DataGridTextColumn
+            {
+                Header = headerName,
+                Binding = new Binding($"CustomColumns[{columnKey}]"),
+                Width = new DataGridLength(150),
+                IsReadOnly = false
+            };
+            TranslationGrid.Columns.Add(dataGridCol);
+
+            foreach (var item in _translationItems)
+            {
+                if (!item.CustomColumns.ContainsKey(columnKey))
+                {
+                    item.CustomColumns[columnKey] = string.Empty;
+                }
+            }
+
+            TranslationGrid.ItemsSource = null;
+            TranslationGrid.ItemsSource = _translationItems;
+
+            AddAiChatBubble($"Added new custom column '{headerName}'. You can now edit notes in each row. Click Save (Ctrl+S) to persist it.");
         }
     }
 }
